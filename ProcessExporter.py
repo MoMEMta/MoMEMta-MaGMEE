@@ -34,6 +34,7 @@ import madgraph.iolibs.helas_call_writers as helas_call_writers
 import madgraph.iolibs.file_writers as writers
 import madgraph.iolibs.template_files as template_files
 import madgraph.iolibs.ufo_expression_parsers as parsers
+import madgraph.iolibs.group_subprocs as group_subprocs
 from madgraph import MadGraph5Error, InvalidCmd, MG5DIR
 from madgraph.iolibs.files import cp, ln, mv
 from madgraph.iolibs.export_cpp import UFOModelConverterCPP
@@ -43,176 +44,30 @@ import madgraph.various.misc as misc
 import aloha.create_aloha as create_aloha
 import aloha.aloha_writers as aloha_writers
 
-_file_path = os.path.split(os.path.dirname(os.path.realpath(__file__)))[0] + '/'
+_file_path = os.path.join(MG5DIR, "PLUGIN", "MoMEMta-MaGMEE")
+_template_dir = os.path.join(_file_path, "Template")
 logger = logging.getLogger('madgraph.export_pythia8')
 
-
-
-
-#===============================================================================
-# setup_cpp_standalone_dir
-#===============================================================================
-def setup_cpp_standalone_dir(dirpath, model):
-    """Prepare export_dir as standalone_cpp directory, including:
-    src (for model and ALOHA files + makefile)
-    lib (with compiled libraries from src)
-    SubProcesses (with makefile and Pxxxxx directories)
-    """
-
-    process_class = os.path.basename(os.path.normpath(dirpath))
-    # Check that the name used will compile in c++
-    name_check = re.compile('\\W') # match any non alphanumeric (excluding '_') character
-    if process_class[0].isdigit() or name_check.search(process_class):
-        raise Exception('Exported directory name is used as C++ class name for the process and must therefore be a legal C++ variable name.')
-
-    cwd = os.getcwd()
-
-    try:
-        os.mkdir(dirpath)
-    except os.error as error:
-        logger.warning(error.strerror + " " + dirpath)
-    
-    try:
-        os.chdir(dirpath)
-    except os.error:
-        logger.error('Could not cd to directory %s' % dirpath)
-        return 0
-
-    logger.info('Creating subdirectories in directory %s' % dirpath)
-
-    try:
-        os.mkdir('src')
-    except os.error as error:
-        logger.warning(error.strerror + " " + dirpath)
-    
-    try:
-        os.mkdir('lib')
-    except os.error as error:
-        logger.warning(error.strerror + " " + dirpath)
-    
-    try:
-        os.mkdir('Cards')
-    except os.error as error:
-        logger.warning(error.strerror + " " + dirpath)
-    
-    try:
-        os.mkdir('SubProcesses')
-    except os.error as error:
-        logger.warning(error.strerror + " " + dirpath)
-
-    # Write param_card
-    open(os.path.join("Cards","param_card.dat"), 'w').write(\
-        model.write_param_card())
-
-    src_files = ['read_slha.h', 'read_slha.cc']
-    
-    # Copy the needed src files
-    for f in src_files:
-        cp(_file_path + 'iolibs/template_files/' + f, 'src')
-
-    # Copy the base class file into 'src' directory
-    cp(_file_path + 'iolibs/template_files/cpp_process_mem_baseclasses.h', 'src/process_base_classes.h')
-
-    # Copy src Makefile
-    makefile = read_template_file('Makefile_sa_cpp_mem_src') % \
-                           {'model': ProcessExporterCPP.get_model_name(model.get('name'))}
-    open(os.path.join('src', 'Makefile'), 'w').write(makefile)
-
-    # Copy SubProcesses Makefile
-    makefile = read_template_file('Makefile_sa_cpp_mem_sp') % \
-                                    {'model': ProcessExporterCPP.get_model_name(model.get('name')),
-                                     'process_class': process_class
-                                    }
-    open(os.path.join('SubProcesses', 'Makefile'), 'w').write(makefile)
-
-    # Copy CMakeLists.txt
-    makefile = read_template_file('CMakeLists_sa_cpp_mem') % {'process_class': process_class}
-    open('CMakeLists.txt', 'w').write(makefile)
-
-    # Return to original PWD
-    os.chdir(cwd)
-
-#===============================================================================
-# generate_subprocess_directory_standalone_cpp
-#===============================================================================
-def generate_subprocess_directory_standalone_cpp(matrix_element,
-                                                 cpp_helas_call_writer,
-                                                 path = os.getcwd(),
-                                                 format='standalone_cpp_mem'):
-
-    """Generate the Pxxxxx directory for a subprocess in C++ standalone,
-    including the necessary .h and .cc files"""
-
-    cwd = os.getcwd()
-    # Create the process_exporter
-    if format == 'standalone_cpp_mem':
-        process_exporter_cpp = ProcessExporterCPP(matrix_element,
-                                              cpp_helas_call_writer)
-    else:
-        raise Exception, 'Unrecognized format %s' % format
-
-
-    # extract user defined folder name (dirty way)
-    f_search = re.search(".*/(.*)/SubProcess",path)
-    ufolder = f_search and f_search.groups()[0] or "user_folder_not_found"
-    process_exporter_cpp.ufolder = ufolder
-    process_exporter_cpp.process_class = ufolder
-
-    # Create the directory PN_xx_xxxxx in the specified path
-    dirpath = os.path.join(path, \
-                   "P%d_%s" % (process_exporter_cpp.process_number,
-                               process_exporter_cpp.process_name))
-    try:
-        os.mkdir(dirpath)
-    except os.error as error:
-        logger.warning(error.strerror + " " + dirpath)
-
-    try:
-        os.chdir(dirpath)
-    except os.error:
-        logger.error('Could not cd to directory %s' % dirpath)
-        return 0
-
-    logger.info('Creating files in directory %s' % dirpath)
-
-    process_exporter_cpp.path = dirpath
-    # Create the process .h and .cc files
-    process_exporter_cpp.generate_process_files()
-
-    linkfiles = ['Makefile']
-    for file in linkfiles:
-        ln('../%s' % file)
-
-    # Return to original PWD
-    os.chdir(cwd)
-
-def make_model_cpp(dir_path):
-    """Make the model library in a C++ standalone directory"""
-
-    source_dir = os.path.join(dir_path, "src")
-    # Run standalone
-    logger.info("Running make for src")
-    misc.compile(cwd=source_dir)
 
 #===============================================================================
 # ProcessExporterCPP
 #===============================================================================
-class ProcessExporterMoMEMta(object):
+class OneProcessExporterMoMEMta(object):
     """Class to take care of exporting a set of matrix elements to
     C++ format."""
 
     # Static variables (for inheritance)
     process_dir = '.'
     include_dir = '.'
-    process_template_h                 = 'cpp_process_mem_h.inc'
-    process_template_cc                = 'cpp_process_mem_cc.inc'
-    process_class_template             = 'cpp_process_mem_class.inc'
-    process_definition_template        = 'cpp_process_mem_function_definitions.inc'
-    process_wavefunction_template      = 'cpp_process_mem_wavefunctions.inc'
-    process_sigmaKin_function_template = 'cpp_process_mem_sigmaKin_function.inc'
-    single_process_template            = 'cpp_process_mem_matrix.inc'
+    process_template_h                 = 'process_h.inc'
+    process_template_cc                = 'process_cc.inc'
+    process_class_template             = 'process_class.inc'
+    process_definition_template        = 'function_definitions.inc'
+    process_wavefunction_template      = 'wavefunctions.inc'
+    process_sigmaKin_function_template = 'me_function.inc'
+    single_process_template            = 'matrix.inc'
 
-    class ProcessExporterCPPError(Exception):
+    class OneProcessExporterMoMEMtaError(Exception):
         pass
     
     def __init__(self, matrix_elements, cpp_helas_call_writer, process_string = "",
@@ -222,7 +77,7 @@ class ProcessExporterMoMEMta(object):
 
         self.ufolder = ''
 
-        if isinstance(matrix_elements, helas_objects.HelasMultiProcess):
+        if isinstance(matrix_elements, helas_objects.HelasMultiProcess) or isinstance(matrix_elements, group_subprocs.SubProcessGroup):
             self.matrix_elements = matrix_elements.get('matrix_elements')
         elif isinstance(matrix_elements, helas_objects.HelasMatrixElement):
             self.matrix_elements = \
@@ -237,7 +92,7 @@ class ProcessExporterMoMEMta(object):
             raise MadGraph5Error("No matrix elements to export")
 
         self.model = self.matrix_elements[0].get('processes')[0].get('model')
-        self.model_name = ProcessExporterCPP.get_model_name(self.model.get('name'))
+        self.model_name = OneProcessExporterMoMEMta.get_model_name(self.model.get('name'))
 
         self.processes = sum([me.get('processes') for \
                               me in self.matrix_elements], [])
@@ -264,7 +119,7 @@ class ProcessExporterMoMEMta(object):
         self.helas_call_writer = cpp_helas_call_writer
 
         if not isinstance(self.helas_call_writer, helas_call_writers.CPPUFOHelasCallWriter):
-            raise self.ProcessExporterCPPError, \
+            raise self.OneProcessExporterMoMEMtaError, \
                 "helas_call_writer not CPPUFOHelasCallWriter"
 
         self.nexternal, self.ninitial = \
@@ -315,6 +170,27 @@ class ProcessExporterMoMEMta(object):
         diagram = helas_objects.HelasDiagram({'amplitudes': self.amplitudes})
         self.amplitudes = helas_objects.HelasMatrixElement({\
             'diagrams': helas_objects.HelasDiagramList([diagram])})
+    
+    #===============================================================================
+    # Global helper methods
+    #===============================================================================
+    @classmethod
+    def read_template_file(cls, filename, classpath=False):
+        """Open a template file and return the contents."""
+         
+        if isinstance(filename, tuple):
+            file_path = filename[0]
+            filename = filename[1]
+        elif isinstance(filename, str):
+            if classpath:
+                file_path = cls.__template_path
+            else:
+                file_path = cls.template_path
+        else:
+            raise MadGraph5Error('Argument should be string or tuple.')
+        
+        return open(os.path.join(file_path, filename)).read()
+
 
     # Methods for generation of process files for C++
 
@@ -327,6 +203,7 @@ class ProcessExporterMoMEMta(object):
             os.makedirs(os.path.join(self.path, self.include_dir))
         filename = os.path.join(self.path, self.include_dir,
                                 '%s.h' % self.process_class)
+        
         self.write_process_h_file(writers.CPPWriter(filename))
 
         if not os.path.isdir(os.path.join(self.path, self.process_dir)):
@@ -369,7 +246,7 @@ class ProcessExporterMoMEMta(object):
         process_class_definitions = self.get_process_class_definitions()
         replace_dict['process_class_definitions'] = process_class_definitions
 
-        file = read_template_file(self.process_template_h) % replace_dict
+        file = self.read_template_file((_template_dir, self.process_template_h)) % replace_dict
 
         # Write the file
         writer.writelines(file)
@@ -406,7 +283,7 @@ class ProcessExporterMoMEMta(object):
         replace_dict['process_function_definitions'] = \
                                                    process_function_definitions
 
-        file = read_template_file(self.process_template_cc) % replace_dict
+        file = self.read_template_file((_template_dir, self.process_template_cc)) % replace_dict
 
         # Write the file
         writer.writelines(file)
@@ -460,7 +337,7 @@ class ProcessExporterMoMEMta(object):
                                   replace("0_", "") \
                                   for me in self.matrix_elements])
 
-        file = read_template_file(self.process_class_template) % replace_dict
+        file = self.read_template_file((_template_dir, self.process_class_template)) % replace_dict
 
         return file
 
@@ -498,7 +375,7 @@ class ProcessExporterMoMEMta(object):
                                   self.get_all_sigmaKin_lines(color_amplitudes,
                                                               self.process_class)
 
-        file = read_template_file(self.process_definition_template) %\
+        file = self.read_template_file((_template_dir, self.process_definition_template)) %\
                replace_dict
 
         return file
@@ -584,7 +461,7 @@ class ProcessExporterMoMEMta(object):
         replace_dict['wavefunction_calls'] = replace_dict['wavefunction_calls'].replace('pars->', 'params.') 
         replace_dict['amplitude_calls'] = replace_dict['amplitude_calls'].replace('pars->', 'params.') 
         
-        file = read_template_file(self.process_wavefunction_template) % \
+        file = self.read_template_file((_template_dir, self.process_wavefunction_template)) % \
                 replace_dict
 
         return file
@@ -627,7 +504,7 @@ class ProcessExporterMoMEMta(object):
         # Process name
         replace_dict['process_class_name'] = self.process_name
         
-        file = read_template_file(self.process_sigmaKin_function_template) % replace_dict
+        file = self.read_template_file((_template_dir, self.process_sigmaKin_function_template)) % replace_dict
 
         return file
 
@@ -687,7 +564,7 @@ class ProcessExporterMoMEMta(object):
         #specific exporter hack
         replace_dict =  self.get_class_specific_definition_matrix(replace_dict, matrix_element)
         
-        file = read_template_file(self.single_process_template) % \
+        file = self.read_template_file((_template_dir, self.single_process_template)) % \
                 replace_dict
 
         return file
@@ -811,12 +688,10 @@ def expand_initial_state(i_id):
         return [i_id < 0 and -i or i  for i in [1,2,3,4]]
     return [i_id]
 
-def read_template_file(filename):
-    """Open a template file and return the contents."""
-
-    return open(os.path.join(_file_path, \
-                             'iolibs', 'template_files',
-                             filename)).read()
+#def read_template_file(filename):
+#    """Open a template file and return the contents."""
+#
+#    return open(os.path.join(_template_dir, filename)).read()
 
 def get_mg5_info_lines():
     """Return info lines for MG5, suitable to place at beginning of
@@ -864,27 +739,194 @@ def coeff(ff_number, frac, is_imaginary, Nc_power, Nc_value=3):
 
     return res_str + '*'
 
-#===============================================================================
-# Routines to export/output UFO models in C++ format
-#===============================================================================
 
-def convert_model_to_cpp_mem(model, output_dir, wanted_lorentz = [],
-                         wanted_couplings = []):
-    """Create a full valid C++ model from an MG5 model (coming from UFO)"""
+class ProcessExporterMoMEMta(object):
 
-    # create the model parameter files
-    model_builder = UFOModelConverterCPP(model,
-                                         os.path.join(output_dir, 'src'),
-                                         wanted_lorentz,
-                                         wanted_couplings)
+    default_opt = {'clean': False, 'complex_mass':False,
+            'export_format': 'madevent', 'mp': False,
+            'v5_model': True
+            }
+    grouped_mode = True 
 
-    # We just want to change the Parameters_model class templates
-    model_builder.param_template_h = 'cpp_mem_model_parameters_h.inc'
-    model_builder.param_template_cc = 'cpp_mem_model_parameters_cc.inc'
+    def __init__(self, dir_path="", opt=None):
+        self.dir_path = dir_path
 
-    model_builder.write_files()
+        self.opt = dict(self.default_opt)
+        if opt:
+            self.opt.update(opt)
 
-MoMEMta_output = {
+    #===============================================================================
+    # setup_cpp_standalone_dir
+    #===============================================================================
+    def setup_cpp_standalone_dir(self, model):
+        """Prepare export_dir as standalone_cpp directory, including:
+        src (for model and ALOHA files + makefile)
+        lib (with compiled libraries from src)
+        SubProcesses (with makefile and Pxxxxx directories)
+        """
+   
+        self.model = model
+
+        process_class = os.path.basename(os.path.normpath(self.dir_path))
+        # Check that the name used will compile in c++
+        name_check = re.compile('\\W') # match any non alphanumeric (excluding '_') character
+        if process_class[0].isdigit() or name_check.search(process_class):
+            raise Exception('Exported directory name is used as C++ class name for the process and must therefore be a legal C++ variable name.')
+    
+        cwd = os.getcwd()
+    
+        try:
+            os.mkdir(self.dir_path)
+        except os.error as error:
+            logger.warning(error.strerror + " " + self.dir_path)
+        
+        try:
+            os.chdir(self.dir_path)
+        except os.error:
+            logger.error('Could not cd to directory %s' % self.dir_path)
+            return 0
+    
+        logger.info('Creating subdirectories in directory %s' % self.dir_path)
+    
+        try:
+            os.mkdir('src')
+        except os.error as error:
+            logger.warning(error.strerror + " " + self.dir_path)
+        
+        try:
+            os.mkdir('lib')
+        except os.error as error:
+            logger.warning(error.strerror + " " + self.dir_path)
+        
+        try:
+            os.mkdir('Cards')
+        except os.error as error:
+            logger.warning(error.strerror + " " + self.dir_path)
+        
+        try:
+            os.mkdir('SubProcesses')
+        except os.error as error:
+            logger.warning(error.strerror + " " + self.dir_path)
+    
+        # Write param_card
+        open(os.path.join("Cards","param_card.dat"), 'w').write(\
+            model.write_param_card())
+    
+        src_files = ['read_slha.h', 'read_slha.cc']
+        
+        # Copy the needed src files
+        for f in src_files:
+            cp(_template_dir + '/' + f, 'src')
+    
+        # Copy the base class file into 'src' directory
+        cp(_template_dir + '/baseclasses.h', 'src/process_base_classes.h')
+    
+        # Copy src Makefile
+        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'Makefile_model.inc')) % \
+                               {'model': OneProcessExporterMoMEMta.get_model_name(model.get('name'))}
+        open(os.path.join('src', 'Makefile'), 'w').write(makefile)
+    
+        # Copy SubProcesses Makefile
+        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'Makefile_process.inc')) % \
+                                        {'model': OneProcessExporterMoMEMta.get_model_name(model.get('name')),
+                                         'process_class': process_class
+                                        }
+        open(os.path.join('SubProcesses', 'Makefile'), 'w').write(makefile)
+    
+        # Copy CMakeLists.txt
+        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'CMakeLists.inc')) % {'process_class': process_class}
+        open('CMakeLists.txt', 'w').write(makefile)
+    
+        # Return to original PWD
+        os.chdir(cwd)
+        self.opt = dict()
+    
+    
+
+    #===============================================================================
+    # generate_subprocess_directory_standalone_cpp
+    #===============================================================================
+    def generate_subprocess_directory(self, matrix_element, cpp_helas_call_writer, proc_number=None):
+    
+        """Generate the Pxxxxx directory for a subprocess in C++ standalone,
+        including the necessary .h and .cc files"""
+    
+        cwd = os.getcwd()
+        # Create the process_exporter
+        process_exporter_cpp = OneProcessExporterMoMEMta(matrix_element, cpp_helas_call_writer)
+    
+        # extract user defined folder name (dirty way)
+        #f_search = re.search(".*/(.*)/SubProcess",path)
+        #ufolder = f_search and f_search.groups()[0] or "user_folder_not_found"
+        #process_exporter_cpp.ufolder = ufolder
+        #process_exporter_cpp.process_class = ufolder
+
+        process_exporter_cpp.ufolder = self.dir_path
+        process_exporter_cpp.process_class = os.path.basename(self.dir_path)
+    
+        # Create the directory PN_xx_xxxxx in the specified path
+        sub_dirpath = os.path.join(self.dir_path, "SubProcesses",
+                       "P%d_%s" % (process_exporter_cpp.process_number,
+                                   process_exporter_cpp.process_name))
+        try:
+            os.mkdir(sub_dirpath)
+        except os.error as error:
+            logger.warning(error.strerror + " " + sub_dirpath)
+    
+        try:
+            os.chdir(sub_dirpath)
+        except os.error:
+            logger.error('Could not cd to directory %s' % sub_dirpath)
+            return 0
+    
+        logger.info('Creating files in directory %s' % sub_dirpath)
+    
+        process_exporter_cpp.path = sub_dirpath
+        # Create the process .h and .cc files
+        process_exporter_cpp.generate_process_files()
+    
+        linkfiles = ['Makefile']
+        for file in linkfiles:
+            ln('../%s' % file)
+    
+        # Return to original PWD
+        os.chdir(cwd)
+
+        return 0
+    
+    #def make_model_cpp(self, dir_path):
+    #    """Make the model library in a C++ standalone directory"""
+    #
+    #    source_dir = os.path.join(dir_path, "src")
+    #    # Run standalone
+    #    logger.info("Running make for src")
+    #    misc.compile(cwd=source_dir)
+    
+    #===============================================================================
+    # Routines to export/output UFO models in C++ format
+    #===============================================================================
+    
+    def convert_model(self, model, wanted_lorentz = [],
+                             wanted_couplings = []):
+        """Create a full valid C++ model from an MG5 model (coming from UFO)"""
+    
+        # create the model parameter files
+        model_builder = UFOModelConverterCPP(self.model,
+                                             os.path.join(self.dir_path, 'src'),
+                                             wanted_lorentz,
+                                             wanted_couplings)
+    
+        # We just want to change the Parameters_model class templates
+        model_builder.param_template_h = (_template_dir, 'model_parameters_h.inc')
+        model_builder.param_template_cc = (_template_dir, 'model_parameters_cc.inc')
+    
+        model_builder.write_files()
+
+    def finalize(self, *args, **kwargs):
+        pass
+
+
+ProcessExporterMoMEMta_cfg = {
     # check status of the directory. Remove it if already exists
     'check': True, 
     # Language type: 'v4' for f77/ 'cpp' for C++ output
@@ -895,7 +937,7 @@ MoMEMta_output = {
     # Grouping SubProcesses into quark/lepton (even if not identical matrix element)
     'group_subprocesses': True,
     # Decide which type of merging if used [madevent/madweight]
-    'group_mode': 'madweight',    
+    'group_mode': 'madweight', 
     # if no grouping on can decide to merge uu~ and u~u anyway:
     'sa_symmetry': True, 
     # The most important part where the exporter is defined:
