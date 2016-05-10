@@ -1,49 +1,39 @@
-################################################################################
+## For the present version of this code,
+# MoMEMta-MaGMEE: a MadGraph Matrix Element Exporter plugin for MoMEMta
+# Copyright (C) 2016  Universite catholique de Louvain (UCL), Belgium
 #
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+#
+## For the original version of this code,
 # Copyright (c) 2009 The MadGraph5_aMC@NLO Development team and Contributors
-#
-# This file is a part of the MadGraph5_aMC@NLO project, an application which 
-# automatically generates Feynman diagrams and matrix elements for arbitrary
-# high-energy processes in the Standard Model and beyond.
-#
-# It is subject to the MadGraph5_aMC@NLO license which should accompany this 
-# distribution.
-#
-# For more information, visit madgraph.phys.ucl.ac.be and amcatnlo.web.cern.ch
-#
-################################################################################
 
-"""Methods and classes to export models and matrix elements to MEM-dedicated C++ Standalone format."""
+"""Methods and classes to export models and matrix elements to MoMEMta-dedicated C++ format."""
 
 import fractions
-import glob
 import itertools
 import logging
-from math import fmod
 import os
 import re
-import shutil
-import subprocess
 
 import madgraph.core.base_objects as base_objects
 import madgraph.core.color_algebra as color
 import madgraph.core.helas_objects as helas_objects
-import madgraph.iolibs.drawing_eps as draw
-import madgraph.iolibs.files as files
 import madgraph.iolibs.helas_call_writers as helas_call_writers
 import madgraph.iolibs.file_writers as writers
-import madgraph.iolibs.template_files as template_files
-import madgraph.iolibs.ufo_expression_parsers as parsers
 import madgraph.iolibs.group_subprocs as group_subprocs
-from madgraph import MadGraph5Error, InvalidCmd, MG5DIR
-from madgraph.iolibs.files import cp, ln, mv
+from madgraph import MadGraph5Error, MG5DIR
 from madgraph.iolibs.export_cpp import UFOModelConverterCPP
 from madgraph.iolibs.export_v4 import VirtualExporter
-
-import madgraph.various.misc as misc
-
-import aloha.create_aloha as create_aloha
-import aloha.aloha_writers as aloha_writers
 
 _file_path = os.path.join(MG5DIR, "PLUGIN", "MoMEMta-MaGMEE")
 _template_dir = os.path.join(_file_path, "Template")
@@ -54,45 +44,39 @@ logger = logging.getLogger('madgraph.export_pythia8')
 # ProcessExporterCPP
 #===============================================================================
 class OneProcessExporterMoMEMta(object):
-    """Class to take care of exporting a set of matrix elements to
-    C++ format."""
+    """Class to take care of exporting a set of matrix elements to MoMEMta-dedicated C++ format."""
 
     # Static variables (for inheritance)
-    process_dir = '.'
-    include_dir = '.'
-    process_template_h                 = 'process_h.inc'
-    process_template_cc                = 'process_cc.inc'
+    process_template_h                 = 'process.h'
+    process_template_cc                = 'process.cc'
     process_class_template             = 'process_class.inc'
     process_definition_template        = 'function_definitions.inc'
     process_wavefunction_template      = 'wavefunctions.inc'
-    process_sigmaKin_function_template = 'me_function.inc'
+    process_matrix_averaging_template  = 'matrix_averaging.inc'
     single_process_template            = 'matrix.inc'
 
     class OneProcessExporterMoMEMtaError(Exception):
         pass
     
-    def __init__(self, matrix_elements, cpp_helas_call_writer, process_string = "",
-                 process_number = 0, path = os.getcwd()):
-        """Initiate with matrix elements, helas call writer, process
-        string, path. Generate the process .h and .cc files."""
+    def __init__(self, subproc_group, helicity_model, parent_folder, namespace):
+    
+        # Path to parent folder where the whole process is exported
+        self.parent_folder = parent_folder
 
-        self.ufolder = ''
-
-        if isinstance(matrix_elements, group_subprocs.SubProcessGroupList):
-            self.matrix_elements = matrix_elements.split_lepton_grouping().get_matrix_elements()
+        # We want the leptons to be split, but still be inside the same class,
+        # so we do the splitting here.
+        # What we get is an instance of 'HelasMatrixElementList', which is just like a 
+        # python list of 'HelasMatrixElement' objects
         
-        elif isinstance(matrix_elements, group_subprocs.SubProcessGroup):
-            temp_group = group_subprocs.SubProcessGroupList([matrix_elements])
+        if isinstance(subproc_group, group_subprocs.SubProcessGroupList):
+            self.matrix_elements = subproc_group.split_lepton_grouping().get_matrix_elements()
+        
+        elif isinstance(subproc_group, group_subprocs.SubProcessGroup):
+            temp_group = group_subprocs.SubProcessGroupList([subproc_group])
             self.matrix_elements = temp_group.split_lepton_grouping().get_matrix_elements()
         
         else:
-            raise base_objects.PhysicsObject.PhysicsObjectError, "Wrong object type for matrix_elements"
-
-        if not self.matrix_elements:
-            raise MadGraph5Error("No matrix elements to export")
-
-        self.model = self.matrix_elements[0].get('processes')[0].get('model')
-        self.model_name = OneProcessExporterMoMEMta.get_model_name(self.model.get('name'))
+            raise base_objects.PhysicsObject.PhysicsObjectError, "Wrong object type for subproc_group"
 
         self.processes = sum([me.get('processes') for \
                               me in self.matrix_elements], [])
@@ -102,21 +86,26 @@ class OneProcessExporterMoMEMta(object):
         self.nprocesses = len(self.matrix_elements)
         self.nprocesses += sum([1 for me in self.matrix_elements if me.get('has_mirror_process')])
 
-        if process_string:
-            self.process_string = process_string
-        else:
-            self.process_string = self.processes[0].base_string()
+        self.process_string = self.processes[0].base_string()
+        self.process_number = self.processes[0].get('id')
 
-        if process_number:
-            self.process_number = process_number
-        else:
-            self.process_number = self.processes[0].get('id')
+        # Retrieve model, set model name
+        self.model = self.matrix_elements[0].get('processes')[0].get('model')
+        self.model_name = OneProcessExporterMoMEMta.get_model_name(self.model.get('name'))
 
+        # Namespace for the C++ code, ie the basename of the parent folder _ the model name
+        self.namespace = namespace + "_" + self.model_name
+
+        # Process name: string of type "pp_ttx_..."
         self.process_name = self.get_process_name()
-        self.process_class = "CPPProcess"
 
-        self.path = path
-        self.helas_call_writer = cpp_helas_call_writer
+        # C++ class for the whole process
+        self.process_class = "P%d_%s" % (self.process_number, self.process_name)
+
+        # Directory where all the files will be written
+        self.path = os.path.join(parent_folder, 'SubProcesses', self.process_class)
+
+        self.helas_call_writer = helicity_model
 
         if not isinstance(self.helas_call_writer, helas_call_writers.CPPUFOHelasCallWriter):
             raise self.OneProcessExporterMoMEMtaError, \
@@ -126,12 +115,8 @@ class OneProcessExporterMoMEMta(object):
                         self.matrix_elements[0].get_nexternal_ninitial()
         self.nfinal = self.nexternal - self.ninitial
 
-        # Check if we can use the same helicities for all matrix
-        # elements
-        
+        # Check if we can use the same helicities for all matrix elements
         hel_matrix = self.get_helicity_matrix(self.matrix_elements[0])
-
-        # Test if all subprocesses have the same helicity structure, abort export otherwise
         for me in self.matrix_elements[1:]:
             if self.get_helicity_matrix(me) != hel_matrix:
                 raise Exception('Multiple helicities are not supported in mode standalone_cpp_mem.')
@@ -191,31 +176,22 @@ class OneProcessExporterMoMEMta(object):
         
         return open(os.path.join(file_path, filename)).read()
 
-
     # Methods for generation of process files for C++
 
     def generate_process_files(self):
-        """Generate the .h and .cc files needed for C++, for the
-        processes described by multi_matrix_element"""
+        """Generate the .h and .cc files containing the matrix elements"""
 
         # Create the files
-        if not os.path.isdir(os.path.join(self.path, self.include_dir)):
-            os.makedirs(os.path.join(self.path, self.include_dir))
-        filename = os.path.join(self.path, self.include_dir,
-                                '%s.h' % self.process_class)
+        filename = os.path.join(self.path, '%s.h' % self.process_class)
         
         self.write_process_h_file(writers.CPPWriter(filename))
 
-        if not os.path.isdir(os.path.join(self.path, self.process_dir)):
-            os.makedirs(os.path.join(self.path, self.process_dir))
-        filename = os.path.join(self.path, self.process_dir,
-                                '%s.cc' % self.process_class)
+        filename = os.path.join(self.path, '%s.cc' % self.process_class)
 
         self.write_process_cc_file(writers.CPPWriter(filename))
 
-        logger.info('Created files %(process)s.h and %(process)s.cc in' % \
-                    {'process': self.process_class} + \
-                    ' directory %(dir)s' % {'dir': os.path.split(filename)[0]})
+        logger.info('Created files %(process)s.h and %(process)s.cc in %(dir)s' % \
+                    {'process': self.process_class, 'dir': self.path})
 
 
 
@@ -231,25 +207,19 @@ class OneProcessExporterMoMEMta(object):
 
         replace_dict = {}
 
-        # Extract version number and date from VERSION file
-        info_lines = get_mg5_info_lines()
-        replace_dict['info_lines'] = info_lines
+        replace_dict['namespace'] = self.namespace
+        replace_dict['model_name'] = self.model_name
+        replace_dict['process_class_definition'] = self.get_process_class_definition()
+        
+        # Extract process info lines for all processes
+        process_lines = "\n".join([self.get_process_info_lines(me) for me in \
+                                   self.matrix_elements])
+        replace_dict['process_lines'] = process_lines
 
-        # Extract model name
-        replace_dict['model_name'] = \
-                         self.model_name
-
-        # Extract process file name
-        replace_dict['process_file_name'] = self.process_name
-
-        # Extract class definitions
-        process_class_definitions = self.get_process_class_definitions()
-        replace_dict['process_class_definitions'] = process_class_definitions
-
-        file = self.read_template_file((_template_dir, self.process_template_h)) % replace_dict
+        file_content = self.read_template_file((_template_dir, self.process_template_h)) % replace_dict
 
         # Write the file
-        writer.writelines(file)
+        writer.writelines(file_content)
 
     #===========================================================================
     # write_process_cc_file
@@ -264,121 +234,68 @@ class OneProcessExporterMoMEMta(object):
 
         replace_dict = {}
 
-        # Extract version number and date from VERSION file
-        info_lines = get_mg5_info_lines()
-        replace_dict['info_lines'] = info_lines
-
-        # Extract process file name
-        replace_dict['process_file_name'] = self.process_name
-
+        replace_dict['namespace'] = self.namespace
         replace_dict['process_class'] = self.process_class
-
-        # Extract model name
         replace_dict['model_name'] = self.model_name
-                         
-
-        # Extract class function definitions
-        process_function_definitions = \
-                         self.get_process_function_definitions()
-        replace_dict['process_function_definitions'] = \
-                                                   process_function_definitions
-
-        file = self.read_template_file((_template_dir, self.process_template_cc)) % replace_dict
-
-        # Write the file
-        writer.writelines(file)
-
-    #===========================================================================
-    # Process export helper functions
-    #===========================================================================
-    def get_process_class_definitions(self):
-        """The complete class definition for the process"""
-
-        replace_dict = {}
-
-        # Extract model name
-        replace_dict['model_name'] = self.model_name
-
-        # Extract process info lines for all processes
-        process_lines = "\n".join([self.get_process_info_lines(me) for me in \
-                                   self.matrix_elements])
-        
-        replace_dict['process_lines'] = process_lines
-
-        # Extract number of external particles
-        replace_dict['nfinal'] = self.nfinal
-
-        # Extract number of external particles
-        replace_dict['ninitial'] = self.ninitial
-
-        replace_dict['nexternal'] = self.nexternal
-
-        # Extract process class name 
-        replace_dict['process_class'] = self.process_class
-
-        # Extract process definition
-        process_definition = "%s (%s)" % (self.process_string,
-                                          self.model_name)
-        replace_dict['process_definition'] = process_definition
-
-        process = self.processes[0]
-
-        # Extract helicity matrix
-        replace_dict['helicity_matrix'] = self.get_helicity_matrix(self.matrix_elements[0])
-
-        replace_dict['all_sigma_kin_definitions'] = \
-                      """// Calculate wavefunctions
-                      void calculate_wavefunctions(const int perm[], const int hel[]);
-                      std::complex<double> amp[%d];""" % (len(self.amplitudes.get_all_amplitudes()))
-
-        replace_dict['all_matrix_definitions'] = \
-                       "\n".join(["double matrix_%s();" % \
-                                  me.get('processes')[0].shell_string().\
-                                  replace("0_", "") \
-                                  for me in self.matrix_elements])
-
-        file = self.read_template_file((_template_dir, self.process_class_template)) % replace_dict
-
-        return file
-
-    def get_process_function_definitions(self):
-        """The complete Pythia 8 class definition for the process"""
-
-        replace_dict = {}
-
-        # Extract model name
-        replace_dict['model_name'] = self.model_name
+        replace_dict['process_function_definitions'] = self.get_process_function_definitions()
 
         # Extract process info lines
         replace_dict['process_lines'] = \
                              "\n".join([self.get_process_info_lines(me) for \
                                         me in self.matrix_elements])
 
-        # Extract process class name 
+        file_content = self.read_template_file((_template_dir, self.process_template_cc)) % replace_dict
+
+        # Write the file
+        writer.writelines(file_content)
+
+    #===========================================================================
+    # Process export helper functions
+    #===========================================================================
+    def get_process_class_definition(self):
+        """Template values for the class definition in the header file of the process"""
+
+        replace_dict = {}
+        
+        replace_dict['model_name'] = self.model_name
+        replace_dict['process_class'] = self.process_class
+        replace_dict['nfinal'] = self.nfinal
+        replace_dict['ninitial'] = self.ninitial
+        replace_dict['nexternal'] = self.nexternal
+        replace_dict['helicity_matrix'] = self.get_helicity_matrix(self.matrix_elements[0])
+
+        replace_dict['all_wavefunction_definitions'] = \
+                      """// Wavefunctions
+                      void calculate_wavefunctions(const int perm[], const int hel[]);
+                      std::complex<double> amp[%d];\n""" % (len(self.amplitudes.get_all_amplitudes()))
+
+        replace_dict['all_matrix_definitions'] = "// Matrix elements\n" + \
+                       "\n".join(["double matrix_%s();" % \
+                                  me.get('processes')[0].shell_string().\
+                                  replace("0_", "") \
+                                  for me in self.matrix_elements])
+
+        return self.read_template_file((_template_dir, self.process_class_template)) % replace_dict
+
+
+    def get_process_function_definitions(self):
+        """Template values for the class definition in the source file of the process"""
+
+        replace_dict = {}
+
+        replace_dict['model_name'] = self.model_name
         replace_dict['process_class'] = self.process_class
 
-        color_amplitudes = [me.get_color_amplitudes() for me in \
-                            self.matrix_elements]
+        color_amplitudes = [ me.get_color_amplitudes() for me in self.matrix_elements ]
+        replace_dict['constructor_lines'] = self.get_constructor_lines(self.matrix_elements[0], color_amplitudes)
 
         replace_dict['nexternal'] = self.nexternal
-
-        replace_dict['initProc_lines'] = \
-                                self.get_initProc_lines(self.matrix_elements[0],
-                                                        color_amplitudes)
-
         replace_dict['finalstates_map'] = self.get_finalstates_map()
+        replace_dict['matrix_averaging'] = self.get_matrix_averaging(color_amplitudes)
+        replace_dict['matrix_evaluations'] = self.get_matrix_evaluations(color_amplitudes)
 
-        replace_dict['sigmaKin_lines'] = \
-                                     self.get_sigmaKin_lines(color_amplitudes)
+        return self.read_template_file((_template_dir, self.process_definition_template)) % replace_dict
 
-        replace_dict['all_sigmaKin'] = \
-                                  self.get_all_sigmaKin_lines(color_amplitudes,
-                                                              self.process_class)
-
-        file = self.read_template_file((_template_dir, self.process_definition_template)) %\
-               replace_dict
-
-        return file
 
     def get_process_name(self):
         """Return process file name for the process in matrix_element"""
@@ -416,6 +333,7 @@ class OneProcessExporterMoMEMta(object):
                                           process_string)
         return process_string
 
+
     def get_process_info_lines(self, matrix_element):
         """Return info lines describing the processes for this matrix element"""
 
@@ -423,129 +341,118 @@ class OneProcessExporterMoMEMta(object):
                          for process in matrix_element.get('processes')])
 
 
-    def get_initProc_lines(self, matrix_element, color_amplitudes):
-        """Get initProc_lines for function definition for Pythia 8 .cc file"""
+    def get_constructor_lines(self, matrix_element, color_amplitudes):
+        """Get constructor lines for function definition for process source file"""
 
-        initProc_lines = []
+        constructor_lines = []
 
-        initProc_lines.append("// Set external particle masses for this matrix element")
+        constructor_lines.append("// Set external particle masses for this matrix element")
 
         for part in matrix_element.get_external_wavefunctions():
-            initProc_lines.append("mME.push_back(params.%s);" % part.get('mass'))
+            constructor_lines.append("mME.push_back(params->%s);" % part.get('mass'))
 
-        return "\n".join(initProc_lines)
+        return "\n".join(constructor_lines)
 
-    def get_calculate_wavefunctions(self, wavefunctions, amplitudes):
-        """Return the lines for optimized calculation of the
-        wavefunctions for all subprocesses"""
-
-        replace_dict = {}
-
-        replace_dict['nwavefuncs'] = len(wavefunctions)
-        
-        #ensure no recycling of wavefunction ! incompatible with some output
-        for me in self.matrix_elements:
-            me.restore_original_wavefunctions()
-
-        replace_dict['wavefunction_calls'] = "\n".join(\
-            self.helas_call_writer.get_wavefunction_calls(\
-            helas_objects.HelasWavefunctionList(wavefunctions)))
-
-        # change vector format for 4-vectors
-        replace_dict['wavefunction_calls'] = re.sub(r"p\[perm\[(\d+)]\]",r'&momenta[perm[\1]][0]',replace_dict['wavefunction_calls'])
-
-        replace_dict['amplitude_calls'] = "\n".join(\
-            self.helas_call_writer.get_amplitude_calls(amplitudes))
-
-        # Change way parameters are called from Parameters_X class
-        replace_dict['wavefunction_calls'] = replace_dict['wavefunction_calls'].replace('pars->', 'params.') 
-        replace_dict['amplitude_calls'] = replace_dict['amplitude_calls'].replace('pars->', 'params.') 
-        
-        file = self.read_template_file((_template_dir, self.process_wavefunction_template)) % \
-                replace_dict
-
-        return file
 
     def get_finalstates_map(self):
-        """Build map of final states with __matrixElements  """
+        """Build map of final states (instanciates SubProcess class)  """
+        
         final_states = {}
+       
+        # First retrieve all the final state's SubProcess definitions
+
         for me in self.matrix_elements:
+            
             proc = me.get('processes')[0]
-            #f_s = "{"+",".join([str(part.get('id')) for part in proc.get('legs')[2:]])+"}"
-            f_s = "{"+",".join([str(i) for i in proc.get_final_ids_after_decay()])+"}"
+            
+            final_ids = "{" + ",".join( [ str(i) for i in proc.get_final_ids_after_decay() ] ) + "}"
+            
             iproc = {}
+            
             iproc["function"] = "&%s::matrix_%s" % (self.process_class, proc.shell_string().replace("0_", ""))
-            iproc["mirror"] = me.get('has_mirror_process') and "true" or "false"
-            iproc["istates"] = "{"+",".join(["std::make_pair(%i,%i)" % (proc.get('legs')[0].get('id'), proc.get('legs')[1].get('id')) for proc in me.get('processes') ])+"}"
+            iproc["mirror"] = ( me.get('has_mirror_process') and "true" ) or "false"
+            iproc["istates"] = "{" + ",".join( [ "std::make_pair(%i, %i)" % (proc.get('legs')[0].get('id'), proc.get('legs')[1].get('id')) for proc in me.get('processes') ] ) + "}"
             iproc["ncomb"] = me.get_helicity_combinations() 
             iproc["denom"] = me.get_denominator_factor() 
-            final_states[f_s] = final_states.get(f_s,[])+[iproc]
+            
+            final_states[final_ids] = final_states.get(final_ids, []) + [iproc]
+
+        # Then define the actual final states map using these
 
         out  = ""
+        
         for final, data in final_states.items():
+            
             out += "mapFinalStates[%s] =\n" % (final)
             out += "{\n"
-            out += ",\n".join(["{ %(function)s,\n %(mirror)s,\n %(istates)s ,\n %(ncomb)i,\n %(denom)i\n }\n" % dati for dati in data])
+            out += ",\n".join( [ "{%(function)s,\n %(mirror)s,\n %(istates)s,\n %(ncomb)i,\n %(denom)i\n}\n" % dati for dati in data ] )
             out += "};\n"
 
         return out
             
 
-    def get_sigmaKin_lines(self, color_amplitudes):
-        """Get sigmaKin_lines for function definition for .cc file"""
-
+    def get_matrix_averaging(self, color_amplitudes):
+        """Get matrix call and averaging loop for process source file"""
         
         replace_dict = {}
 
-        # Number of helicity combinations
         replace_dict['ncomb'] = self.matrix_elements[0].get_helicity_combinations()
         replace_dict['nexternal'] = self.nexternal
-
-        # Process name
-        replace_dict['process_class_name'] = self.process_name
         
-        file = self.read_template_file((_template_dir, self.process_sigmaKin_function_template)) % replace_dict
+        return self.read_template_file((_template_dir, self.process_matrix_averaging_template)) % replace_dict
 
-        return file
 
-    def get_all_sigmaKin_lines(self, color_amplitudes, class_name):
-        """Get sigmaKin_process for all subprocesses for .cc file"""
+    def get_matrix_evaluations(self, color_amplitudes):
+        """Get matrix evaluation functions for process source file""" 
 
         ret_lines = []
         
-        ret_lines.append(\
-            "void %s::calculate_wavefunctions(const int perm[], const int hel[]){" % \
-            class_name)
+        ret_lines.append("void %s::calculate_wavefunctions(const int perm[], const int hel[]) {" % self.process_class)
         ret_lines.append("// Calculate wavefunctions for all processes")
-        ret_lines.append(self.get_calculate_wavefunctions(\
-            self.wavefunctions, self.amplitudes))
+        ret_lines.append(self.get_calculate_wavefunctions(self.wavefunctions, self.amplitudes))
         ret_lines.append("}")
         
-        ret_lines.extend([self.get_matrix_single_process(i, me,
-                                                         color_amplitudes[i],
-                                                         class_name) \
-                                for i, me in enumerate(self.matrix_elements)])
+        ret_lines.extend( 
+                [ self.get_matrix_single_process(i, me, color_amplitudes[i]) for i, me in enumerate(self.matrix_elements) ]
+                )
         return "\n".join(ret_lines)
 
 
-    def get_matrix_single_process(self, i, matrix_element, color_amplitudes,
-                                  class_name):
-        """Write matrix() for each process"""
+    def get_calculate_wavefunctions(self, wavefunctions, amplitudes):
+        """Return the lines for optimized calculation of the wavefunctions for all subprocesses"""
 
-        # Write matrix() for the process
+        replace_dict = {}
+
+        replace_dict['nwavefuncs'] = len(wavefunctions)
+        
+        # Ensure no recycling of wavefunction ! incompatible with some output
+        for me in self.matrix_elements:
+            me.restore_original_wavefunctions()
+
+        replace_dict['wavefunction_calls'] = "\n".join( self.helas_call_writer.get_wavefunction_calls(helas_objects.HelasWavefunctionList(wavefunctions)) )
+
+        # Change vector format for 4-vectors
+        replace_dict['wavefunction_calls'] = re.sub(r"p\[perm\[(\d+)]\]", r'&momenta[perm[\1]][0]', replace_dict['wavefunction_calls'])
+
+        replace_dict['amplitude_calls'] = "\n".join( self.helas_call_writer.get_amplitude_calls(amplitudes) )
+
+        # Change way parameters are called from Parameters_X class
+        replace_dict['wavefunction_calls'] = replace_dict['wavefunction_calls'].replace('pars->', 'params->') 
+        replace_dict['amplitude_calls'] = replace_dict['amplitude_calls'].replace('pars->', 'params->') 
+        
+        return self.read_template_file((_template_dir, self.process_wavefunction_template)) % replace_dict
+
+
+    def get_matrix_single_process(self, i, matrix_element, color_amplitudes):
+        """Write matrix() for each process"""
 
         replace_dict = {}
 
         # Process name
-        replace_dict['proc_name'] = \
-          matrix_element.get('processes')[0].shell_string().replace("0_", "")
-        
+        replace_dict['proc_name'] = matrix_element.get('processes')[0].shell_string().replace("0_", "")
 
-        # Wavefunction and amplitude calls
-        replace_dict['matrix_args'] = ""
-
-        # Process name
-        replace_dict['process_class'] = class_name
+        # Process class
+        replace_dict['process_class'] = self.process_class 
         
         # Process number
         replace_dict['proc_number'] = i
@@ -553,27 +460,14 @@ class OneProcessExporterMoMEMta(object):
         # Number of color flows
         replace_dict['ncolor'] = len(color_amplitudes)
 
-        # Extract color matrix
-        replace_dict['color_matrix_lines'] = \
-                                     self.get_color_matrix_lines(matrix_element)
-
-                                     
-        replace_dict['jamp_lines'] = self.get_jamp_lines(color_amplitudes)
-
-
-        #specific exporter hack
-        replace_dict =  self.get_class_specific_definition_matrix(replace_dict, matrix_element)
+        # Get color matrix
+        replace_dict['color_matrix_lines'] = self.get_color_matrix_lines(matrix_element)
         
-        file = self.read_template_file((_template_dir, self.single_process_template)) % \
-                replace_dict
+        # Get color flow coefficients
+        replace_dict['jamp_lines'] = self.get_jamp_lines(color_amplitudes)
+        
+        return self.read_template_file((_template_dir, self.single_process_template)) % replace_dict
 
-        return file
-
-    def get_class_specific_definition_matrix(self, converter, matrix_element):
-        """place to add some specific hack to a given exporter.
-        Please always use Super in that case"""
-
-        return converter
 
     def get_helicity_matrix(self, matrix_element):
         """Return the Helicity matrix definition lines for this matrix element"""
@@ -582,44 +476,47 @@ class OneProcessExporterMoMEMta(object):
         helicity_line_list = []
 
         for helicities in matrix_element.get_helicity_matrix(allow_reverse=False):
-            helicity_line_list.append("{"+",".join(['%d'] * len(helicities)) % \
-                                       tuple(helicities) + "}")
+            helicity_line_list.append("{" + ",".join(['%d'] * len(helicities)) % tuple(helicities) + "}")
 
         return helicity_line + ",".join(helicity_line_list) + "};"
 
+    
     def get_den_factor_line(self, matrix_element):
         """Return the denominator factor line for this matrix element"""
 
-        return "const int denominator = %d;" % \
-               matrix_element.get_denominator_factor()
+        return "const int denominator = %d;" % matrix_element.get_denominator_factor()
+
 
     def get_color_matrix_lines(self, matrix_element):
-        """Return the color matrix definition lines for this matrix element. Split
-        rows in chunks of size n."""
+        """Return the color matrix definition lines for this matrix element. 
+        Split rows in chunks of size n."""
 
         ncolor = str(len(matrix_element.get_color_amplitudes()))
 
         if not matrix_element.get('color_matrix'):
-            return "\n".join(["static const double denom[1] = {1.};",
-                              "static const double cf[1][1] = {1.};"])
+            
+            return "static const double denom[1] = {1.};\nstatic const double cf[1][1] = {1.};"
+        
         else:
-            color_denominators = matrix_element.get('color_matrix').\
-                                                 get_line_denominators()
-            denom_string = "static const double denom["+ncolor+"] = {%s};" % \
-                           ",".join(["%i" % denom for denom in color_denominators])
+            
+            # First define denominator array
+            color_denominators = matrix_element.get('color_matrix').get_line_denominators()
+            denom_string = "static const double denom[" + ncolor + "] = {%s};" % \
+                           ",".join( [ "%i" % denom for denom in color_denominators ] )
 
             matrix_strings = []
             my_cs = color.ColorString()
+            
             for index, denominator in enumerate(color_denominators):
                 # Then write the numerators for the matrix elements
-                num_list = matrix_element.get('color_matrix').\
-                                            get_line_numerators(index, denominator)
+                num_list = matrix_element.get('color_matrix').get_line_numerators(index, denominator)
 
-                matrix_strings.append("{%s}" % \
-                                     ",".join(["%d" % i for i in num_list]))
-            matrix_string = "static const double cf["+ncolor+"]["+ncolor+"] = {" + \
-                            ",".join(matrix_strings) + "};"
+                matrix_strings.append( "{%s}" % ",".join( [ "%d" % i for i in num_list ] ) )
+            
+            matrix_string = "static const double cf[" + ncolor + "][" + ncolor + "] = {" + ",".join(matrix_strings) + "};"
+            
             return "\n".join([denom_string, matrix_string])
+
 
     def get_jamp_lines(self, color_amplitudes):
         """Return the jamp = sum(fermionfactor * amp[i]) lines"""
@@ -633,7 +530,7 @@ class OneProcessExporterMoMEMta(object):
 
             # Optimization: if all contributions to that color basis element have
             # the same coefficient (up to a sign), put it in front
-            list_fracs = [abs(coefficient[0][1]) for coefficient in coeff_list]
+            list_fracs = [ abs(coefficient[0][1]) for coefficient in coeff_list ]
             common_factor = False
             diff_fracs = list(set(list_fracs))
             if len(diff_fracs) == 1 and abs(diff_fracs[0]) != 1:
@@ -669,6 +566,7 @@ class OneProcessExporterMoMEMta(object):
 
         return "\n".join(res_list)
 
+
     @staticmethod
     def get_model_name(name):
         """Replace - with _, + with _plus_ in a model name."""
@@ -687,30 +585,6 @@ def expand_initial_state(i_id):
     if( -4 <= i_id <= 4  and i_id != 0):
         return [i_id < 0 and -i or i  for i in [1,2,3,4]]
     return [i_id]
-
-#def read_template_file(filename):
-#    """Open a template file and return the contents."""
-#
-#    return open(os.path.join(_template_dir, filename)).read()
-
-def get_mg5_info_lines():
-    """Return info lines for MG5, suitable to place at beginning of
-    Fortran files"""
-
-    info = misc.get_pkg_info()
-    info_lines = ""
-    if info and info.has_key('version') and  info.has_key('date'):
-        info_lines = "#  MadGraph5_aMC@NLO v. %s, %s\n" % \
-                     (info['version'], info['date'])
-        info_lines = info_lines + \
-                     "#  By the MadGraph5_aMC@NLO Development Team\n" + \
-                     "#  Visit launchpad.net/madgraph5 and amcatnlo.web.cern.ch"
-    else:
-        info_lines = "#  MadGraph5_aMC@NLO\n" + \
-                     "#  By the MadGraph5_aMC@NLO Development Team\n" + \
-                     "#  Visit launchpad.net/madgraph5 and amcatnlo.web.cern.ch"        
-
-    return info_lines
 
 def coeff(ff_number, frac, is_imaginary, Nc_power, Nc_value=3):
     """Returns a nicely formatted string for the coefficients in JAMP lines"""
@@ -741,43 +615,55 @@ def coeff(ff_number, frac, is_imaginary, Nc_power, Nc_value=3):
 
 
 class ProcessExporterMoMEMta(VirtualExporter):
+    """Plugin class handling the export of processes for MoMEMta in C++"""
 
-    # check status of the directory. Remove it if already exists
+    # Check status of the directory (ask to remove it if already exists)
     check = True 
     # Language type: 'v4' for f77/ 'cpp' for C++ output
     exporter = 'cpp'
     # Output type:
-    #[Template/dir/None] copy the Template, just create dir  or do nothing 
+    #[Template/dir/None] copy the Template, just create dir or do nothing 
     output = 'Template'
     # Decide which type of merging if used [madevent/madweight]
     grouped_mode = 'madweight'
-    # if no grouping on can decide to merge uu~ and u~u anyway:
+    # If no grouping on can decide to merge uu~ and u~u anyway:
     sa_symmetry = True
     
     def __init__(self, dir_path="", opt=None):
+       
+        # Output directory
         self.dir_path = dir_path
 
+        # Not used by us
         self.opt = dict()
         if opt:
             self.opt.update(opt)
 
+        # The class actually handling the exporting of the ME
+        self.Exporter = OneProcessExporterMoMEMta
+
+        # Will contain all sub-process directories created hereafter
+        self.sub_dirs = []
+
     #===============================================================================
-    # setup_cpp_standalone_dir
+    # copy_template
     #===============================================================================
     def copy_template(self, model):
-        """Prepare export_dir as standalone_cpp directory, including:
-        src (for model and ALOHA files + makefile)
+        """Prepare dir_path as output directory, including:
+        include (for model and ALOHA header files)
+        src (for model and ALOHA source files)
         lib (with compiled libraries from src)
         SubProcesses (with makefile and Pxxxxx directories)
         """
    
         self.model = model
+        self.model_name = self.Exporter.get_model_name(self.model.get('name'))
 
-        process_class = os.path.basename(os.path.normpath(self.dir_path))
+        self.dir_name = os.path.basename(os.path.normpath(self.dir_path))
         # Check that the name used will compile in c++
         name_check = re.compile('\\W') # match any non alphanumeric (excluding '_') character
-        if process_class[0].isdigit() or name_check.search(process_class):
-            raise Exception('Exported directory name is used as C++ class name for the process and must therefore be a legal C++ variable name.')
+        if self.dir_name[0].isdigit() or name_check.search(self.dir_name):
+            raise Exception('Exported directory name is used as C++ namespace for the process and must therefore be a legal C++ variable name.')
     
         cwd = os.getcwd()
     
@@ -794,6 +680,11 @@ class ProcessExporterMoMEMta(VirtualExporter):
     
         logger.info('Creating subdirectories in directory %s' % self.dir_path)
     
+        try:
+            os.mkdir('include')
+        except os.error as error:
+            logger.warning(error.strerror + " " + self.dir_path)
+        
         try:
             os.mkdir('src')
         except os.error as error:
@@ -815,33 +706,14 @@ class ProcessExporterMoMEMta(VirtualExporter):
             logger.warning(error.strerror + " " + self.dir_path)
     
         # Write param_card
-        open(os.path.join("Cards","param_card.dat"), 'w').write(\
-            model.write_param_card())
+        with open(os.path.join("Cards","param_card.dat"), 'w') as m_file:
+            m_file.write(model.write_param_card())
     
-        src_files = ['read_slha.h', 'read_slha.cc']
-        
-        # Copy the needed src files
-        for f in src_files:
-            cp(_template_dir + '/' + f, 'src')
-    
-        # Copy the base class file into 'src' directory
-        cp(_template_dir + '/baseclasses.h', 'src/process_base_classes.h')
-    
-        # Copy src Makefile
-        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'Makefile_model.inc')) % \
-                               {'model': OneProcessExporterMoMEMta.get_model_name(model.get('name'))}
-        open(os.path.join('src', 'Makefile'), 'w').write(makefile)
-    
-        # Copy SubProcesses Makefile
-        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'Makefile_process.inc')) % \
-                                        {'model': OneProcessExporterMoMEMta.get_model_name(model.get('name')),
-                                         'process_class': process_class
-                                        }
-        open(os.path.join('SubProcesses', 'Makefile'), 'w').write(makefile)
-    
-        # Copy CMakeLists.txt
-        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'CMakeLists.inc')) % {'process_class': process_class}
-        open('CMakeLists.txt', 'w').write(makefile)
+        # Copy the SubProcess base class file into 'include' directory
+        subprocess = self.Exporter.read_template_file((_template_dir, 'SubProcess.h')) % \
+                               {'namespace': self.dir_name + "_" + self.model_name }
+        with open(os.path.join('include', 'SubProcess.h'), 'w') as m_file:
+            m_file.write(subprocess)
     
         # Return to original PWD
         os.chdir(cwd)
@@ -850,63 +722,42 @@ class ProcessExporterMoMEMta(VirtualExporter):
     
 
     #===============================================================================
-    # generate_subprocess_directory_standalone_cpp
+    # generate_subprocess_directory
     #===============================================================================
     def generate_subprocess_directory(self, subproc_group, helicity_model, proc_number=None):
-    
         """Generate the Pxxxxx directory for a subprocess in C++ standalone,
         including the necessary .h and .cc files"""
     
         cwd = os.getcwd()
+        
         # Create the process_exporter
-        process_exporter_cpp = OneProcessExporterMoMEMta(subproc_group, helicity_model)
-    
-        # extract user defined folder name (dirty way)
-        #f_search = re.search(".*/(.*)/SubProcess",path)
-        #ufolder = f_search and f_search.groups()[0] or "user_folder_not_found"
-        #process_exporter_cpp.ufolder = ufolder
-        #process_exporter_cpp.process_class = ufolder
-
-        process_exporter_cpp.ufolder = self.dir_path
-        process_exporter_cpp.process_class = os.path.basename(self.dir_path)
+        process_exporter = self.Exporter(subproc_group, helicity_model, self.dir_path, self.dir_name)
     
         # Create the directory PN_xx_xxxxx in the specified path
-        sub_dirpath = os.path.join(self.dir_path, "SubProcesses",
-                       "P%d_%s" % (process_exporter_cpp.process_number,
-                                   process_exporter_cpp.process_name))
+        sub_dir_path = process_exporter.path
         try:
-            os.mkdir(sub_dirpath)
+            os.mkdir(sub_dir_path)
         except os.error as error:
-            logger.warning(error.strerror + " " + sub_dirpath)
+            logger.warning(error.strerror + " " + sub_dir_path)
     
         try:
-            os.chdir(sub_dirpath)
+            os.chdir(sub_dir_path)
         except os.error:
-            logger.error('Could not cd to directory %s' % sub_dirpath)
+            logger.error('Could not cd to directory %s' % sub_dir_path)
             return 0
     
-        logger.info('Creating files in directory %s' % sub_dirpath)
+        logger.info('Creating files in directory %s' % sub_dir_path)
     
-        process_exporter_cpp.path = sub_dirpath
         # Create the process .h and .cc files
-        process_exporter_cpp.generate_process_files()
-    
-        linkfiles = ['Makefile']
-        for file in linkfiles:
-            ln('../%s' % file)
+        process_exporter.generate_process_files()
+
+        # Log created dir
+        self.sub_dirs.append(sub_dir_path)
     
         # Return to original PWD
         os.chdir(cwd)
 
         return 0
-    
-    def make_model_cpp(self, dir_path):
-        """Make the model library in a C++ standalone directory"""
-    
-        source_dir = os.path.join(dir_path, "src")
-        # Run standalone
-        logger.info("Running make for src")
-        misc.compile(cwd=source_dir)
     
     #===============================================================================
     # Routines to export/output UFO models in C++ format
@@ -915,21 +766,107 @@ class ProcessExporterMoMEMta(VirtualExporter):
     def convert_model(self, model, wanted_lorentz = [], wanted_couplings = []):
         """Create a full valid C++ model from an MG5 model (coming from UFO)"""
     
-        # create the model parameter files
-        model_builder = UFOModelConverterCPP(self.model,
-                                             os.path.join(self.dir_path, 'src'),
-                                             wanted_lorentz,
-                                             wanted_couplings)
-    
-        # We just want to change the Parameters_model class templates
-        model_builder.param_template_h = (_template_dir, 'model_parameters_h.inc')
-        model_builder.param_template_cc = (_template_dir, 'model_parameters_cc.inc')
+        # Create the files for model parameter and amplitude calls
+        model_builder = UFOModelConverterMoMEMta(
+                                            self.dir_name,
+                                            self.model,
+                                            self.dir_path,
+                                            wanted_lorentz,
+                                            wanted_couplings)
     
         model_builder.write_files()
 
     def finalize(self, matrix_element, cmdhistory, MG5options, outputflag):
-        self.make_model_cpp(self.dir_path)
+        # Copy CMakeLists.txt and fill template
+        include_commands = "\n".join( [ 'include_directories("SubProcesses/{}")'.format(os.path.basename(dir)) for dir in self.sub_dirs ] )
+        makefile = OneProcessExporterMoMEMta.read_template_file((_template_dir, 'CMakeLists.txt')) % {
+                'dir_name': self.dir_name,
+                'include_subprocs_list': include_commands
+                }
+        with open(os.path.join(self.dir_path, 'CMakeLists.txt'), 'w') as m_file:
+            m_file.write(makefile)
 
     def modify_grouping(self, matrix_element):
         return False, matrix_element
 
+
+#===============================================================================
+# UFOModelConverterMoMEMta
+#===============================================================================
+
+class UFOModelConverterMoMEMta(UFOModelConverterCPP):
+    """Subclass of UFOModelConverterCPP, since we modify certain things, such as the parameters class"""
+
+    include_dir = "include"
+    cc_file_dir = "src"
+    param_template_h = (_template_dir, 'model_parameters.h')
+    param_template_cc = (_template_dir, 'model_parameters.cc')
+
+    def __init__(self, namespace, *args, **kwargs):
+        self.namespace = namespace
+        return UFOModelConverterCPP.__init__(self, *args, **kwargs)
+    
+    def generate_parameters_class_files(self):
+        """Create the content of the Parameters_model.h and .cc files"""
+
+        replace_dict = {}
+
+        replace_dict['model_name'] = self.model_name
+        replace_dict['namespace'] = self.namespace
+
+        # Unchanged compared to base class
+        replace_dict['independent_parameters'] = \
+                                   "// Model parameters independent of aS\n" + \
+                                   self.write_parameters(self.params_indep)
+        replace_dict['independent_couplings'] = \
+                                   "// Model parameters dependent on aS\n" + \
+                                   self.write_parameters(self.params_dep)
+        replace_dict['dependent_parameters'] = \
+                                   "// Model couplings independent of aS\n" + \
+                                   self.write_parameters(self.coups_indep)
+        replace_dict['dependent_couplings'] = \
+                                   "// Model couplings dependent on aS\n" + \
+                                   self.write_parameters(self.coups_dep.values())
+
+        replace_dict['set_independent_couplings'] = \
+                               self.write_set_parameters(self.coups_indep)
+        replace_dict['set_dependent_parameters'] = \
+                               self.write_set_parameters(self.params_dep)
+        replace_dict['set_dependent_couplings'] = \
+                               self.write_set_parameters(self.coups_dep.values())
+
+        # This part is modified by us
+        
+        # First retrieve list of params read from the card, or not:
+        params_indep_card = []
+        params_indep_nocard = []
+        for param in self.params_indep:
+            if 'slha' in param.expr:
+                params_indep_card.append(param)
+            else:
+                params_indep_nocard.append(param)
+       
+        # This goes in the constructor: initialise map of parameters
+        replace_dict['parameter_map_lines'] = self.write_set_parameters(params_indep_card)
+        replace_dict['parameter_map_lines'] = re.sub(r'(.*) = slha', r'm_card_parameters["\1"] = card', replace_dict['parameter_map_lines'])
+        
+        # In the method: retrieve parameters from map, or from expression for other parameters
+        replace_dict['set_independent_parameters'] = \
+                               self.write_parameters_from_map(params_indep_card)
+        replace_dict['set_independent_parameters'] += \
+                               self.write_set_parameters(params_indep_nocard)
+        
+        file_h = self.read_template_file(self.param_template_h) % replace_dict
+        file_cc = self.read_template_file(self.param_template_cc) % replace_dict
+        
+        return file_h, file_cc
+
+    
+    def write_parameters_from_map(self, params):
+        """Write out the lines of independent parameters"""
+
+        res_strings = []
+        for param in params:
+            res_strings.append('%(param)s = m_card_parameters["%(param)s"];' % {'param': param.name})
+
+        return "\n".join(res_strings)
