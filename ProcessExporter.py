@@ -38,6 +38,7 @@ import madgraph.iolibs.group_subprocs as group_subprocs
 from madgraph import MadGraph5Error, InvalidCmd, MG5DIR
 from madgraph.iolibs.files import cp, ln, mv
 from madgraph.iolibs.export_cpp import UFOModelConverterCPP
+from madgraph.iolibs.export_v4 import VirtualExporter
 
 import madgraph.various.misc as misc
 
@@ -77,16 +78,15 @@ class OneProcessExporterMoMEMta(object):
 
         self.ufolder = ''
 
-        if isinstance(matrix_elements, helas_objects.HelasMultiProcess) or isinstance(matrix_elements, group_subprocs.SubProcessGroup):
-            self.matrix_elements = matrix_elements.get('matrix_elements')
-        elif isinstance(matrix_elements, helas_objects.HelasMatrixElement):
-            self.matrix_elements = \
-                         helas_objects.HelasMatrixElementList([matrix_elements])
-        elif isinstance(matrix_elements, helas_objects.HelasMatrixElementList):
-            self.matrix_elements = matrix_elements
+        if isinstance(matrix_elements, group_subprocs.SubProcessGroupList):
+            self.matrix_elements = matrix_elements.split_lepton_grouping().get_matrix_elements()
+        
+        elif isinstance(matrix_elements, group_subprocs.SubProcessGroup):
+            temp_group = group_subprocs.SubProcessGroupList([matrix_elements])
+            self.matrix_elements = temp_group.split_lepton_grouping().get_matrix_elements()
+        
         else:
-            raise base_objects.PhysicsObject.PhysicsObjectError,\
-                  "Wrong object type for matrix_elements"
+            raise base_objects.PhysicsObject.PhysicsObjectError, "Wrong object type for matrix_elements"
 
         if not self.matrix_elements:
             raise MadGraph5Error("No matrix elements to export")
@@ -740,25 +740,31 @@ def coeff(ff_number, frac, is_imaginary, Nc_power, Nc_value=3):
     return res_str + '*'
 
 
-class ProcessExporterMoMEMta(object):
+class ProcessExporterMoMEMta(VirtualExporter):
 
-    default_opt = {'clean': False, 'complex_mass':False,
-            'export_format': 'madevent', 'mp': False,
-            'v5_model': True
-            }
-    grouped_mode = True 
-
+    # check status of the directory. Remove it if already exists
+    check = True 
+    # Language type: 'v4' for f77/ 'cpp' for C++ output
+    exporter = 'cpp'
+    # Output type:
+    #[Template/dir/None] copy the Template, just create dir  or do nothing 
+    output = 'Template'
+    # Decide which type of merging if used [madevent/madweight]
+    grouped_mode = 'madweight'
+    # if no grouping on can decide to merge uu~ and u~u anyway:
+    sa_symmetry = True
+    
     def __init__(self, dir_path="", opt=None):
         self.dir_path = dir_path
 
-        self.opt = dict(self.default_opt)
+        self.opt = dict()
         if opt:
             self.opt.update(opt)
 
     #===============================================================================
     # setup_cpp_standalone_dir
     #===============================================================================
-    def setup_cpp_standalone_dir(self, model):
+    def copy_template(self, model):
         """Prepare export_dir as standalone_cpp directory, including:
         src (for model and ALOHA files + makefile)
         lib (with compiled libraries from src)
@@ -846,14 +852,14 @@ class ProcessExporterMoMEMta(object):
     #===============================================================================
     # generate_subprocess_directory_standalone_cpp
     #===============================================================================
-    def generate_subprocess_directory(self, matrix_element, cpp_helas_call_writer, proc_number=None):
+    def generate_subprocess_directory(self, subproc_group, helicity_model, proc_number=None):
     
         """Generate the Pxxxxx directory for a subprocess in C++ standalone,
         including the necessary .h and .cc files"""
     
         cwd = os.getcwd()
         # Create the process_exporter
-        process_exporter_cpp = OneProcessExporterMoMEMta(matrix_element, cpp_helas_call_writer)
+        process_exporter_cpp = OneProcessExporterMoMEMta(subproc_group, helicity_model)
     
         # extract user defined folder name (dirty way)
         #f_search = re.search(".*/(.*)/SubProcess",path)
@@ -894,20 +900,19 @@ class ProcessExporterMoMEMta(object):
 
         return 0
     
-    #def make_model_cpp(self, dir_path):
-    #    """Make the model library in a C++ standalone directory"""
-    #
-    #    source_dir = os.path.join(dir_path, "src")
-    #    # Run standalone
-    #    logger.info("Running make for src")
-    #    misc.compile(cwd=source_dir)
+    def make_model_cpp(self, dir_path):
+        """Make the model library in a C++ standalone directory"""
+    
+        source_dir = os.path.join(dir_path, "src")
+        # Run standalone
+        logger.info("Running make for src")
+        misc.compile(cwd=source_dir)
     
     #===============================================================================
     # Routines to export/output UFO models in C++ format
     #===============================================================================
     
-    def convert_model(self, model, wanted_lorentz = [],
-                             wanted_couplings = []):
+    def convert_model(self, model, wanted_lorentz = [], wanted_couplings = []):
         """Create a full valid C++ model from an MG5 model (coming from UFO)"""
     
         # create the model parameter files
@@ -922,27 +927,9 @@ class ProcessExporterMoMEMta(object):
     
         model_builder.write_files()
 
-    def finalize(self, *args, **kwargs):
-        pass
+    def finalize(self, matrix_element, cmdhistory, MG5options, outputflag):
+        self.make_model_cpp(self.dir_path)
 
-
-ProcessExporterMoMEMta_cfg = {
-    # check status of the directory. Remove it if already exists
-    'check': True, 
-    # Language type: 'v4' for f77/ 'cpp' for C++ output
-    'exporter': 'cpp',
-    # Output type:
-    #[Template/dir/None] copy the Template, just create dir  or do nothing 
-    'output': 'Template', 
-    # Grouping SubProcesses into quark/lepton (even if not identical matrix element)
-    'group_subprocesses': True,
-    # Decide which type of merging if used [madevent/madweight]
-    'group_mode': 'madweight', 
-    # if no grouping on can decide to merge uu~ and u~u anyway:
-    'sa_symmetry': True, 
-    # The most important part where the exporter is defined:
-    # a plugin typically defines this file in another file (here tak one of MG5)
-    'exporter_class': ProcessExporterMoMEMta
-    }
-
+    def modify_grouping(self, matrix_element):
+        return False, matrix_element
 
