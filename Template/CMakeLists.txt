@@ -35,7 +35,7 @@ find_package(Boost REQUIRED log)
 
 # Flags necessary to ensure complex arithmetic performances on-par with
 # Fortran code:
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -fcx-fortran-rules -fcx-limited-range")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -std=c++11 -O3 -fcx-fortran-rules -fcx-limited-range")
 
 file(GLOB_RECURSE SOURCES "*.cc")
 
