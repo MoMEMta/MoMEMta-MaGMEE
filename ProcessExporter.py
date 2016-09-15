@@ -349,7 +349,7 @@ class OneProcessExporterMoMEMta(object):
         constructor_lines.append("// Set external particle masses for this matrix element")
 
         for part in matrix_element.get_external_wavefunctions():
-            constructor_lines.append("mME.push_back(params->%s);" % part.get('mass'))
+            constructor_lines.append("mME.push_back(std::ref(params->%s));" % part.get('mass'))
 
         return "\n".join(constructor_lines)
 

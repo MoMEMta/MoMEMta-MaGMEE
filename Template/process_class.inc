@@ -36,7 +36,7 @@
             std::shared_ptr<Parameters_%(model_name)s> params; 
     
             // vector with external particle masses
-            std::vector<double> mME;
+            std::vector<std::reference_wrapper<double>> mME;
     
             // vector with momenta (to be changed each event)
             double* momenta[%(nexternal)s];
