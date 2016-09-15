@@ -26,6 +26,7 @@
 #include <vector>
 #include <utility>
 #include <map> 
+#include <functional>
 
 #include <Parameters_%(model_name)s.h>
 #include <SubProcess.h>
