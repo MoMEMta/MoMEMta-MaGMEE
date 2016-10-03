@@ -3,7 +3,7 @@
         public:
     
             // Constructor & destructor
-            %(process_class)s(const ParameterSet& configuration);
+            %(process_class)s(const std::string& param_card);
             virtual ~%(process_class)s() {};
     
             // Calculate flavour-independent parts of cross section.

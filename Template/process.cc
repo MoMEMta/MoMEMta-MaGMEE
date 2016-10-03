@@ -28,8 +28,7 @@
 #include <%(process_class)s.h>
 #include <HelAmps_%(model_name)s.h>
 
-#include <momemta/ParameterSet.h>
-#include <momemta/SLHAReader.h>
+#include <SLHAReader.h>
 
 namespace %(namespace)s {
 
@@ -42,7 +41,3 @@ namespace %(namespace)s {
 %(process_function_definitions)s
 
 }
-
-// Register matrix element with MoMEMta
-#include <momemta/MatrixElementFactory.h>
-REGISTER_MATRIX_ELEMENT("%(namespace)s_%(process_class)s", %(namespace)s::%(process_class)s);

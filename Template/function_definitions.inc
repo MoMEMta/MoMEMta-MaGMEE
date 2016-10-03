@@ -1,8 +1,7 @@
 // Initialize process. 
   
-%(process_class)s::%(process_class)s(const ParameterSet& configuration) {
+%(process_class)s::%(process_class)s(const std::string& param_card) {
     
-    std::string param_card = configuration.get<std::string>("card");
     params.reset(new Parameters_%(model_name)s(SLHA::Reader(param_card)));
   
     %(constructor_lines)s

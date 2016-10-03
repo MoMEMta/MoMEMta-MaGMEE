@@ -25,7 +25,7 @@
 #include <complex>
 #include <memory>
 
-#include <momemta/MEParameters.h>
+#include <MEParameters.h>
 
 namespace SLHA { class Reader; }
 

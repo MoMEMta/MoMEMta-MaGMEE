@@ -25,7 +25,7 @@ class MoMEMta_Error(Exception): pass
 new_interface = False
  
 ## We add a new output class 
-new_output = { 'MoMEMta': ProcessExporter.ProcessExporterMoMEMta }
+new_output = { 'MoMEMta_standalone': ProcessExporter.ProcessExporterMoMEMta }
 
 ## Plugin version
 __version__ = (0,1,0)

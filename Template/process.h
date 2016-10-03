@@ -31,7 +31,7 @@
 #include <Parameters_%(model_name)s.h>
 #include <SubProcess.h>
 
-#include <momemta/MatrixElement.h>
+#include <MatrixElement.h>
 
 namespace %(namespace)s {
 

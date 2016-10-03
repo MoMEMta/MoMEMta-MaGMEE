@@ -24,6 +24,7 @@ import itertools
 import logging
 import os
 import re
+import shutil
 
 import madgraph.core.base_objects as base_objects
 import madgraph.core.color_algebra as color
@@ -119,7 +120,7 @@ class OneProcessExporterMoMEMta(object):
         hel_matrix = self.get_helicity_matrix(self.matrix_elements[0])
         for me in self.matrix_elements[1:]:
             if self.get_helicity_matrix(me) != hel_matrix:
-                raise Exception('Multiple helicities are not supported in mode standalone_cpp_mem.')
+                raise Exception('Multiple helicities are not supported in mode MoMEMta.')
             
         # Since all processes have the same helicity structure, this
         # allows us to reuse the same wavefunctions for the
@@ -714,6 +715,14 @@ class ProcessExporterMoMEMta(VirtualExporter):
                                {'namespace': self.dir_name + "_" + self.model_name }
         with open(os.path.join('include', 'SubProcess.h'), 'w') as m_file:
             m_file.write(subprocess)
+
+        # Copy all other needed files
+        headers = ["MEParameters.h", "MatrixElement.h", "SLHAReader.h"]
+        for h in headers:
+            shutil.copyfile(os.path.join(_template_dir, h), os.path.join('include', h))
+        sources = ["SLHAReader.cc"]
+        for s in sources:
+            shutil.copyfile(os.path.join(_template_dir, s), os.path.join('src', s))
     
         # Return to original PWD
         os.chdir(cwd)

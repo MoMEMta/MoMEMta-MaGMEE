@@ -22,7 +22,7 @@
 
 #include <Parameters_%(model_name)s.h>
 
-#include <momemta/SLHAReader.h>
+#include <SLHAReader.h>
 
 namespace %(namespace)s_%(model_name)s {
 
