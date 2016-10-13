@@ -22,16 +22,8 @@ cmake_minimum_required(VERSION 2.8)
 
 project(%(dir_name)s CXX)
 
-find_path(
-    MOMEMTA_INCLUDE_DIR 
-    NAMES momemta/MoMEMta.h
-    DOC "MoMEMta include dir"
-)
-
-set(MOMEMTA_INCLUDE_DIRS ${MOMEMTA_INCLUDE_DIR})
-
-set(Boost_NO_BOOST_CMAKE ON)
-find_package(Boost REQUIRED log)
+# Find MoMEMta
+find_package(MoMEMta CONFIG REQUIRED)
 
 # Flags necessary to ensure complex arithmetic performances on-par with
 # Fortran code:
@@ -39,9 +31,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-variable -std=c++11 -O3 -fcx
 
 file(GLOB_RECURSE SOURCES "*.cc")
 
-include_directories(${MOMEMTA_INCLUDE_DIRS})
-include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
 include_directories("include")
 %(include_subprocs_list)s
 
 add_library(me_%(dir_name)s SHARED ${SOURCES})
+target_link_libraries(me_%(dir_name)s momemta::momemta)
