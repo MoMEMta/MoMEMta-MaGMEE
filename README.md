@@ -4,7 +4,7 @@ MoMEMta - MadGraph Matrix Element Exporter
 ## Requirements
 
 - Python >= 2.7
-- MoMEMta >= 0.1.0 (and its requirements, such as LHAPDF, Boost)
+- MoMEMta >= 0.1.0
 - A C++-11 capable compiler
 
 **Note**: MoMEMta needs to be installed on the system (locally or globally), cf. MoMEMta documentation.
@@ -39,8 +39,7 @@ make -j 4
 This generates a shared library that can be dynamically loaded by MoMEMta (using the `load_modules()` function in the Lua config file).
 
 The following options are available when configuring the the build (when running `cmake ..`):
-- `-DMOMEMTA_INCLUDE_DIR=(path)`: Path to the `include` directory of your installation of MoMEMta. Use this if your version of MoMEMta was installed locally and not in your system directories
-- `-DBOOST_ROOT=(path)`: Use specific Boost version (path to install directory)
+- `-DCMAKE_PREFIX_PATH=(path)`: Path to the installation of MoMEMta. **Must be specified** if your version of MoMEMta is installed locally and not in your system directories
 
 The matrix element has a name assigned to it, of type `myHappyME_P1_Sigma_pp_ttx_...`: 
 this is the name to use when defining the matrix element module in your Lua config file. 
