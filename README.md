@@ -4,14 +4,14 @@ MoMEMta - MadGraph Matrix Element Exporter
 ## Requirements
 
 - Python >= 2.7
-- MoMEMta >= 0.1.0
+- MoMEMta >= 0.2.0
 - A C++-11 capable compiler
 
 **Note**: MoMEMta needs to be installed on the system (locally or globally), cf. MoMEMta documentation.
 
 ## Install
 
-For the moment, you need a specific version of MadGraph5_aMC@NLO (MG5) for the exporter to work. You can retrieve it [here](https://code.launchpad.net/~maddevelopers/mg5amcnlo/plugin_mode).
+For the moment, you need a specific version of MadGraph5_aMC@NLO (MG5) for the exporter to work. You can retrieve it [here](https://code.launchpad.net/~maddevelopers/mg5amcnlo/2.5.1).
 
 Once your copy of MG5 is setup, go the the `PLUGIN` subfolder. There, download the MoMEMta-MaGMEE plugin (either by cloning the git repository, or by downloading and extracting the archive). 
 
