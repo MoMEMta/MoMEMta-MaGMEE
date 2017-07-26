@@ -9,6 +9,15 @@
     %(finalstates_map)s
 } 
 
+void %(process_class)s::resetHelicities() {
+    for (auto& finalState: mapFinalStates) {
+        for (auto& subProcess: finalState.second) {
+            subProcess.resetHelicities();
+        }
+    }
+}
+
+
 //--------------------------------------------------------------------------
 // Evaluate |M|^2, return a map of final states 
 
