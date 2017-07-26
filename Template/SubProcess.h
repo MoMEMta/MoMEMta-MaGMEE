@@ -40,6 +40,10 @@ namespace %(namespace)s {
                 denominator(denom) {
                     // Empty
                 }
+
+            void resetHelicities() {
+                std::fill(goodHel.begin(), goodHel.end(), true);
+            }
     
             Callback callback;
             bool hasMirrorProcess; 
