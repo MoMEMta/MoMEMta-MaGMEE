@@ -33,4 +33,4 @@ __version__ = (0,1,0)
 ## MG5 version requirements
 minimal_mg5amcnlo_version = (2,3,4) 
 maximal_mg5amcnlo_version = (1000,1000,1000)
-latest_validated_version = (2,4,0)
+latest_validated_version = (2,5,5)
