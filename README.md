@@ -7,7 +7,7 @@ Use it to export C++ matrix elements to be used **without** MoMEMta.
 ## Requirements
 
 - Python >= 2.7
-- MG5_aMC@NLO >= 2.5.1 (see [here](https://launchpad.net/~maddevelopers))
+- MG5_aMC@NLO >= 2.5.0 (see [here](https://launchpad.net/~maddevelopers))
 - A C++-11 capable compiler
 
 ## Install
