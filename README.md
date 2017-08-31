@@ -7,7 +7,7 @@ MoMEMta - MadGraph Matrix Element Exporter
 
 - Python >= 2.7
 - MG5_aMC@NLO >= 2.5.0 (see [here](https://launchpad.net/~maddevelopers))
-- MoMEMta > 0.1.0
+- MoMEMta >= 1.0.0
 - A C++-11 capable compiler
 
 **Note**: MoMEMta needs to be installed on the system (locally or globally), cf. MoMEMta documentation.
