@@ -1,13 +1,13 @@
 # MoMEMta-MaGMEE
 MoMEMta - MadGraph Matrix Element Exporter
 
-**Note**: this version of the exporter tracks the developments of MoMEMta. It may or may not be (though most probably is) compatible with the latest developments. To download a version of the exporter guaranteed to be compatible with a specific release of MoMEMta, select the appropriate branch of this repository.
+**Note**: this version of the exporter is only compatible with MoMEMta v1.0.X. For newer versions of MoMEMta, select the appropriate branch of this repository.
 
 ## Requirements
 
 - Python >= 2.7
 - MG5_aMC@NLO >= 2.5.0 (see [here](https://launchpad.net/~maddevelopers))
-- MoMEMta > 0.1.0
+- MoMEMta >= 1.0.0
 - A C++-11 capable compiler
 
 **Note**: MoMEMta needs to be installed on the system (locally or globally), cf. MoMEMta documentation.
