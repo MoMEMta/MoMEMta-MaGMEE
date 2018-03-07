@@ -24,6 +24,7 @@
 
 #include <vector> 
 #include <utility>
+#include <functional>
 
 namespace %(namespace)s {
 
