@@ -28,9 +28,9 @@ new_interface = False
 new_output = { 'MoMEMta': ProcessExporter.ProcessExporterMoMEMta }
 
 ## Plugin version
-__version__ = (0,1,0)
+__version__ = (1,0,0)
 
 ## MG5 version requirements
 minimal_mg5amcnlo_version = (2,5,0) 
 maximal_mg5amcnlo_version = (1000,1000,1000)
-latest_validated_version = (2,5,5)
+latest_validated_version = (2,6,2)
