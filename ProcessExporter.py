@@ -43,7 +43,7 @@ logger = logging.getLogger('madgraph.export_pythia8')
 #===============================================================================
 # ProcessExporterCPP
 #===============================================================================
-class OneProcessExporterMoMEMta(object):
+class OneProcessExporterMoMEMta:
     """Class to take care of exporting a set of matrix elements to MoMEMta-dedicated C++ format."""
 
     # Static variables (for inheritance)
@@ -78,13 +78,13 @@ class OneProcessExporterMoMEMta(object):
         else:
             raise base_objects.PhysicsObject.PhysicsObjectError("Wrong object type for subproc_group")
 
-        self.processes = sum([me.get('processes') for \
-                              me in self.matrix_elements], [])
-        self.processes.extend(sum([me.get_mirror_processes() for \
-                              me in self.matrix_elements], []))
+        self.processes = sum((me.get('processes') for \
+                              me in self.matrix_elements), [])
+        self.processes.extend(sum((me.get_mirror_processes() for \
+                              me in self.matrix_elements), []))
 
         self.nprocesses = len(self.matrix_elements)
-        self.nprocesses += sum([1 for me in self.matrix_elements if me.get('has_mirror_process')])
+        self.nprocesses += sum(1 for me in self.matrix_elements if me.get('has_mirror_process'))
 
         self.process_string = self.processes[0].base_string()
         self.process_number = self.processes[0].get('id')
@@ -302,7 +302,7 @@ class OneProcessExporterMoMEMta(object):
         process_string = self.process_string
 
         # Extract process number
-        proc_number_pattern = re.compile("^(.+)@\s*(\d+)\s*(.*)$")
+        proc_number_pattern = re.compile(r"^(.+)@\s*(\d+)\s*(.*)$")
         proc_number_re = proc_number_pattern.match(process_string)
         proc_number = 0
         if proc_number_re:
@@ -311,7 +311,7 @@ class OneProcessExporterMoMEMta(object):
                              proc_number_re.group(3)
 
         # Remove order information
-        order_pattern = re.compile("^(.+)\s+(\w+)\s*=\s*(\d+)\s*$")
+        order_pattern = re.compile(r"^(.+)\s+(\w+)\s*=\s*(\d+)\s*$")
         order_re = order_pattern.match(process_string)
         while order_re:
             process_string = order_re.group(1)
@@ -328,8 +328,7 @@ class OneProcessExporterMoMEMta(object):
         if proc_number != 0:
             process_string = "%d_%s" % (proc_number, process_string)
 
-        process_string = "Sigma_%s_%s" % (self.model_name,
-                                          process_string)
+        process_string = "Sigma_{}_{}".format(self.model_name, process_string)
         return process_string
 
 
@@ -368,7 +367,7 @@ class OneProcessExporterMoMEMta(object):
 
             iproc = {}
 
-            iproc["function"] = "&%s::matrix_%s" % (self.process_class, proc.shell_string().replace("0_", ""))
+            iproc["function"] = "&{}::matrix_{}".format(self.process_class, proc.shell_string().replace("0_", ""))
             iproc["mirror"] = ( me.get('has_mirror_process') and "true" ) or "false"
             iproc["istates"] = "{" + ",".join( [ "std::make_pair(%i, %i)" % (proc.get('legs')[0].get('id'), proc.get('legs')[1].get('id')) for proc in me.get('processes') ] ) + "}"
             iproc["ncomb"] = me.get_helicity_combinations()
@@ -471,7 +470,7 @@ class OneProcessExporterMoMEMta(object):
     def get_helicity_matrix(self, matrix_element):
         """Return the Helicity matrix definition lines for this matrix element"""
 
-        helicity_line = "const int helicities[%s][%s] = {" % (self.matrix_elements[0].get_helicity_combinations(), self.nexternal);
+        helicity_line = "const int helicities[{}][{}] = {{".format(self.matrix_elements[0].get_helicity_combinations(), self.nexternal);
         helicity_line_list = []
 
         for helicities in matrix_element.get_helicity_matrix(allow_reverse=False):
@@ -866,6 +865,6 @@ class UFOModelConverterMoMEMta(UFOModelConverterCPP):
 
         res_strings = []
         for param in params:
-            res_strings.append('%(param)s = m_card_parameters["%(param)s"];' % {'param': param.name})
+            res_strings.append('{param} = m_card_parameters["{param}"];'.format(param=param.name))
 
         return "\n".join(res_strings)
