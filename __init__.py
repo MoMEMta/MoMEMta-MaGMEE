@@ -16,7 +16,7 @@
 
 ## import the required files
 
-import ProcessExporter
+from . import ProcessExporter
 
 ## Define a typical error for the plugin
 class MoMEMta_Error(Exception): pass

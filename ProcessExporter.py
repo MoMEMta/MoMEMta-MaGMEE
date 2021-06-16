@@ -57,26 +57,26 @@ class OneProcessExporterMoMEMta(object):
 
     class OneProcessExporterMoMEMtaError(Exception):
         pass
-    
+
     def __init__(self, subproc_group, helicity_model, parent_folder, namespace):
-    
+
         # Path to parent folder where the whole process is exported
         self.parent_folder = parent_folder
 
         # We want the leptons to be split, but still be inside the same class,
         # so we do the splitting here.
-        # What we get is an instance of 'HelasMatrixElementList', which is just like a 
+        # What we get is an instance of 'HelasMatrixElementList', which is just like a
         # python list of 'HelasMatrixElement' objects
-        
+
         if isinstance(subproc_group, group_subprocs.SubProcessGroupList):
             self.matrix_elements = subproc_group.split_lepton_grouping().get_matrix_elements()
-        
+
         elif isinstance(subproc_group, group_subprocs.SubProcessGroup):
             temp_group = group_subprocs.SubProcessGroupList([subproc_group])
             self.matrix_elements = temp_group.split_lepton_grouping().get_matrix_elements()
-        
+
         else:
-            raise base_objects.PhysicsObject.PhysicsObjectError, "Wrong object type for subproc_group"
+            raise base_objects.PhysicsObject.PhysicsObjectError("Wrong object type for subproc_group")
 
         self.processes = sum([me.get('processes') for \
                               me in self.matrix_elements], [])
@@ -108,8 +108,7 @@ class OneProcessExporterMoMEMta(object):
         self.helas_call_writer = helicity_model
 
         if not isinstance(self.helas_call_writer, helas_call_writers.CPPUFOHelasCallWriter):
-            raise self.OneProcessExporterMoMEMtaError, \
-                "helas_call_writer not CPPUFOHelasCallWriter"
+            raise self.OneProcessExporterMoMEMtaError("helas_call_writer not CPPUFOHelasCallWriter")
 
         self.nexternal, self.ninitial = \
                         self.matrix_elements[0].get_nexternal_ninitial()
@@ -120,11 +119,11 @@ class OneProcessExporterMoMEMta(object):
         for me in self.matrix_elements[1:]:
             if self.get_helicity_matrix(me) != hel_matrix:
                 raise Exception('Multiple helicities are not supported in mode standalone_cpp_mem.')
-            
+
         # Since all processes have the same helicity structure, this
         # allows us to reuse the same wavefunctions for the
         # different processes
-        
+
         self.wavefunctions = []
         wf_number = 0
 
@@ -155,14 +154,14 @@ class OneProcessExporterMoMEMta(object):
         diagram = helas_objects.HelasDiagram({'amplitudes': self.amplitudes})
         self.amplitudes = helas_objects.HelasMatrixElement({\
             'diagrams': helas_objects.HelasDiagramList([diagram])})
-    
+
     #===============================================================================
     # Global helper methods
     #===============================================================================
     @classmethod
     def read_template_file(cls, filename, classpath=False):
         """Open a template file and return the contents."""
-         
+
         if isinstance(filename, tuple):
             file_path = filename[0]
             filename = filename[1]
@@ -173,7 +172,7 @@ class OneProcessExporterMoMEMta(object):
                 file_path = cls.template_path
         else:
             raise MadGraph5Error('Argument should be string or tuple.')
-        
+
         return open(os.path.join(file_path, filename)).read()
 
     # Methods for generation of process files for C++
@@ -183,7 +182,7 @@ class OneProcessExporterMoMEMta(object):
 
         # Create the files
         filename = os.path.join(self.path, '%s.h' % self.process_class)
-        
+
         self.write_process_h_file(writers.CPPWriter(filename))
 
         filename = os.path.join(self.path, '%s.cc' % self.process_class)
@@ -200,7 +199,7 @@ class OneProcessExporterMoMEMta(object):
     #===========================================================================
     def write_process_h_file(self, writer):
         """Write the class definition (.h) file for the process"""
-        
+
         if not isinstance(writer, writers.CPPWriter):
             raise writers.CPPWriter.CPPWriterError(\
                 "writer not CPPWriter")
@@ -210,7 +209,7 @@ class OneProcessExporterMoMEMta(object):
         replace_dict['namespace'] = self.namespace
         replace_dict['model_name'] = self.model_name
         replace_dict['process_class_definition'] = self.get_process_class_definition()
-        
+
         # Extract process info lines for all processes
         process_lines = "\n".join([self.get_process_info_lines(me) for me in \
                                    self.matrix_elements])
@@ -256,7 +255,7 @@ class OneProcessExporterMoMEMta(object):
         """Template values for the class definition in the header file of the process"""
 
         replace_dict = {}
-        
+
         replace_dict['model_name'] = self.model_name
         replace_dict['process_class'] = self.process_class
         replace_dict['nfinal'] = self.nfinal
@@ -317,7 +316,7 @@ class OneProcessExporterMoMEMta(object):
         while order_re:
             process_string = order_re.group(1)
             order_re = order_pattern.match(process_string)
-        
+
         process_string = process_string.replace(' ', '')
         process_string = process_string.replace('>', '_')
         process_string = process_string.replace('+', 'p')
@@ -356,63 +355,63 @@ class OneProcessExporterMoMEMta(object):
 
     def get_finalstates_map(self):
         """Build map of final states (instanciates SubProcess class)  """
-        
+
         final_states = {}
-       
+
         # First retrieve all the final state's SubProcess definitions
 
         for me in self.matrix_elements:
-            
+
             proc = me.get('processes')[0]
-            
+
             final_ids = "{" + ",".join( [ str(i) for i in proc.get_final_ids_after_decay() ] ) + "}"
-            
+
             iproc = {}
-            
+
             iproc["function"] = "&%s::matrix_%s" % (self.process_class, proc.shell_string().replace("0_", ""))
             iproc["mirror"] = ( me.get('has_mirror_process') and "true" ) or "false"
             iproc["istates"] = "{" + ",".join( [ "std::make_pair(%i, %i)" % (proc.get('legs')[0].get('id'), proc.get('legs')[1].get('id')) for proc in me.get('processes') ] ) + "}"
-            iproc["ncomb"] = me.get_helicity_combinations() 
-            iproc["denom"] = me.get_denominator_factor() 
-            
+            iproc["ncomb"] = me.get_helicity_combinations()
+            iproc["denom"] = me.get_denominator_factor()
+
             final_states[final_ids] = final_states.get(final_ids, []) + [iproc]
 
         # Then define the actual final states map using these
 
         out  = ""
-        
+
         for final, data in final_states.items():
-            
+
             out += "mapFinalStates[%s] =\n" % (final)
             out += "{\n"
             out += ",\n".join( [ "{%(function)s,\n %(mirror)s,\n %(istates)s,\n %(ncomb)i,\n %(denom)i\n}\n" % dati for dati in data ] )
             out += "};\n"
 
         return out
-            
+
 
     def get_matrix_averaging(self, color_amplitudes):
         """Get matrix call and averaging loop for process source file"""
-        
+
         replace_dict = {}
 
         replace_dict['ncomb'] = self.matrix_elements[0].get_helicity_combinations()
         replace_dict['nexternal'] = self.nexternal
-        
+
         return self.read_template_file((_template_dir, self.process_matrix_averaging_template)) % replace_dict
 
 
     def get_matrix_evaluations(self, color_amplitudes):
-        """Get matrix evaluation functions for process source file""" 
+        """Get matrix evaluation functions for process source file"""
 
         ret_lines = []
-        
+
         ret_lines.append("void %s::calculate_wavefunctions(const int perm[], const int hel[]) {" % self.process_class)
         ret_lines.append("// Calculate wavefunctions for all processes")
         ret_lines.append(self.get_calculate_wavefunctions(self.wavefunctions, self.amplitudes))
         ret_lines.append("}")
-        
-        ret_lines.extend( 
+
+        ret_lines.extend(
                 [ self.get_matrix_single_process(i, me, color_amplitudes[i]) for i, me in enumerate(self.matrix_elements) ]
                 )
         return "\n".join(ret_lines)
@@ -424,7 +423,7 @@ class OneProcessExporterMoMEMta(object):
         replace_dict = {}
 
         replace_dict['nwavefuncs'] = len(wavefunctions)
-        
+
         # Ensure no recycling of wavefunction ! incompatible with some output
         for me in self.matrix_elements:
             me.restore_original_wavefunctions()
@@ -437,9 +436,9 @@ class OneProcessExporterMoMEMta(object):
         replace_dict['amplitude_calls'] = "\n".join( self.helas_call_writer.get_amplitude_calls(amplitudes) )
 
         # Change way parameters are called from Parameters_X class
-        replace_dict['wavefunction_calls'] = replace_dict['wavefunction_calls'].replace('pars->', 'params->') 
-        replace_dict['amplitude_calls'] = replace_dict['amplitude_calls'].replace('pars->', 'params->') 
-        
+        replace_dict['wavefunction_calls'] = replace_dict['wavefunction_calls'].replace('pars->', 'params->')
+        replace_dict['amplitude_calls'] = replace_dict['amplitude_calls'].replace('pars->', 'params->')
+
         return self.read_template_file((_template_dir, self.process_wavefunction_template)) % replace_dict
 
 
@@ -452,8 +451,8 @@ class OneProcessExporterMoMEMta(object):
         replace_dict['proc_name'] = matrix_element.get('processes')[0].shell_string().replace("0_", "")
 
         # Process class
-        replace_dict['process_class'] = self.process_class 
-        
+        replace_dict['process_class'] = self.process_class
+
         # Process number
         replace_dict['proc_number'] = i
 
@@ -462,10 +461,10 @@ class OneProcessExporterMoMEMta(object):
 
         # Get color matrix
         replace_dict['color_matrix_lines'] = self.get_color_matrix_lines(matrix_element)
-        
+
         # Get color flow coefficients
         replace_dict['jamp_lines'] = self.get_jamp_lines(color_amplitudes)
-        
+
         return self.read_template_file((_template_dir, self.single_process_template)) % replace_dict
 
 
@@ -480,7 +479,7 @@ class OneProcessExporterMoMEMta(object):
 
         return helicity_line + ",".join(helicity_line_list) + "};"
 
-    
+
     def get_den_factor_line(self, matrix_element):
         """Return the denominator factor line for this matrix element"""
 
@@ -488,17 +487,17 @@ class OneProcessExporterMoMEMta(object):
 
 
     def get_color_matrix_lines(self, matrix_element):
-        """Return the color matrix definition lines for this matrix element. 
+        """Return the color matrix definition lines for this matrix element.
         Split rows in chunks of size n."""
 
         ncolor = str(len(matrix_element.get_color_amplitudes()))
 
         if not matrix_element.get('color_matrix'):
-            
+
             return "static const double denom[1] = {1.};\nstatic const double cf[1][1] = {1.};"
-        
+
         else:
-            
+
             # First define denominator array
             color_denominators = matrix_element.get('color_matrix').get_line_denominators()
             denom_string = "static const double denom[" + ncolor + "] = {%s};" % \
@@ -506,15 +505,15 @@ class OneProcessExporterMoMEMta(object):
 
             matrix_strings = []
             my_cs = color.ColorString()
-            
+
             for index, denominator in enumerate(color_denominators):
                 # Then write the numerators for the matrix elements
                 num_list = matrix_element.get('color_matrix').get_line_numerators(index, denominator)
 
                 matrix_strings.append( "{%s}" % ",".join( [ "%d" % i for i in num_list ] ) )
-            
+
             matrix_string = "static const double cf[" + ncolor + "][" + ncolor + "] = {" + ",".join(matrix_strings) + "};"
-            
+
             return "\n".join([denom_string, matrix_string])
 
 
@@ -618,19 +617,19 @@ class ProcessExporterMoMEMta(VirtualExporter):
     """Plugin class handling the export of processes for MoMEMta in C++"""
 
     # Check status of the directory (ask to remove it if already exists)
-    check = True 
+    check = True
     # Language type: 'v4' for f77/ 'cpp' for C++ output
     exporter = 'cpp'
     # Output type:
-    #[Template/dir/None] copy the Template, just create dir or do nothing 
+    #[Template/dir/None] copy the Template, just create dir or do nothing
     output = 'Template'
     # Decide which type of merging if used [madevent/madweight]
     grouped_mode = 'madweight'
     # If no grouping on can decide to merge uu~ and u~u anyway:
     sa_symmetry = True
-    
+
     def __init__(self, dir_path="", opt=None):
-       
+
         # Output directory
         self.dir_path = dir_path
 
@@ -655,7 +654,7 @@ class ProcessExporterMoMEMta(VirtualExporter):
         lib (with compiled libraries from src)
         SubProcesses (with makefile and Pxxxxx directories)
         """
-   
+
         self.model = model
         self.model_name = self.Exporter.get_model_name(self.model.get('name'))
 
@@ -664,62 +663,62 @@ class ProcessExporterMoMEMta(VirtualExporter):
         name_check = re.compile('\\W') # match any non alphanumeric (excluding '_') character
         if self.dir_name[0].isdigit() or name_check.search(self.dir_name):
             raise Exception('Exported directory name is used as C++ namespace for the process and must therefore be a legal C++ variable name.')
-    
+
         cwd = os.getcwd()
-    
+
         try:
             os.mkdir(self.dir_path)
         except os.error as error:
             logger.warning(error.strerror + " " + self.dir_path)
-        
+
         try:
             os.chdir(self.dir_path)
         except os.error:
             logger.error('Could not cd to directory %s' % self.dir_path)
             return 0
-    
+
         logger.info('Creating subdirectories in directory %s' % self.dir_path)
-    
+
         try:
             os.mkdir('include')
         except os.error as error:
             logger.warning(error.strerror + " " + self.dir_path)
-        
+
         try:
             os.mkdir('src')
         except os.error as error:
             logger.warning(error.strerror + " " + self.dir_path)
-        
+
         try:
             os.mkdir('lib')
         except os.error as error:
             logger.warning(error.strerror + " " + self.dir_path)
-        
+
         try:
             os.mkdir('Cards')
         except os.error as error:
             logger.warning(error.strerror + " " + self.dir_path)
-        
+
         try:
             os.mkdir('SubProcesses')
         except os.error as error:
             logger.warning(error.strerror + " " + self.dir_path)
-    
+
         # Write param_card
         with open(os.path.join("Cards","param_card.dat"), 'w') as m_file:
             m_file.write(model.write_param_card())
-    
+
         # Copy the SubProcess base class file into 'include' directory
         subprocess = self.Exporter.read_template_file((_template_dir, 'SubProcess.h')) % \
                                {'namespace': self.dir_name + "_" + self.model_name }
         with open(os.path.join('include', 'SubProcess.h'), 'w') as m_file:
             m_file.write(subprocess)
-    
+
         # Return to original PWD
         os.chdir(cwd)
         self.opt = dict()
-    
-    
+
+
 
     #===============================================================================
     # generate_subprocess_directory
@@ -727,45 +726,45 @@ class ProcessExporterMoMEMta(VirtualExporter):
     def generate_subprocess_directory(self, subproc_group, helicity_model, proc_number=None):
         """Generate the Pxxxxx directory for a subprocess in C++ standalone,
         including the necessary .h and .cc files"""
-    
+
         cwd = os.getcwd()
-        
+
         # Create the process_exporter
         process_exporter = self.Exporter(subproc_group, helicity_model, self.dir_path, self.dir_name)
-    
+
         # Create the directory PN_xx_xxxxx in the specified path
         sub_dir_path = process_exporter.path
         try:
             os.mkdir(sub_dir_path)
         except os.error as error:
             logger.warning(error.strerror + " " + sub_dir_path)
-    
+
         try:
             os.chdir(sub_dir_path)
         except os.error:
             logger.error('Could not cd to directory %s' % sub_dir_path)
             return 0
-    
+
         logger.info('Creating files in directory %s' % sub_dir_path)
-    
+
         # Create the process .h and .cc files
         process_exporter.generate_process_files()
 
         # Log created dir
         self.sub_dirs.append(sub_dir_path)
-    
+
         # Return to original PWD
         os.chdir(cwd)
 
         return 0
-    
+
     #===============================================================================
     # Routines to export/output UFO models in C++ format
     #===============================================================================
-    
+
     def convert_model(self, model, wanted_lorentz = [], wanted_couplings = []):
         """Create a full valid C++ model from an MG5 model (coming from UFO)"""
-    
+
         # Create the files for model parameter and amplitude calls
         model_builder = UFOModelConverterMoMEMta(
                                             self.dir_name,
@@ -773,7 +772,7 @@ class ProcessExporterMoMEMta(VirtualExporter):
                                             self.dir_path,
                                             wanted_lorentz,
                                             wanted_couplings)
-    
+
         model_builder.write_files()
 
     def finalize(self, matrix_element, cmdhistory, MG5options, outputflag):
@@ -805,7 +804,7 @@ class UFOModelConverterMoMEMta(UFOModelConverterCPP):
     def __init__(self, namespace, *args, **kwargs):
         self.namespace = namespace
         return UFOModelConverterCPP.__init__(self, *args, **kwargs)
-    
+
     def generate_parameters_class_files(self):
         """Create the content of the Parameters_model.h and .cc files"""
 
@@ -836,7 +835,7 @@ class UFOModelConverterMoMEMta(UFOModelConverterCPP):
                                self.write_set_parameters(self.coups_dep.values())
 
         # This part is modified by us
-        
+
         # First retrieve list of params read from the card, or not:
         params_indep_card = []
         params_indep_nocard = []
@@ -845,23 +844,23 @@ class UFOModelConverterMoMEMta(UFOModelConverterCPP):
                 params_indep_card.append(param)
             else:
                 params_indep_nocard.append(param)
-       
+
         # This goes in the constructor: initialise map of parameters
         replace_dict['parameter_map_lines'] = self.write_set_parameters(params_indep_card)
         replace_dict['parameter_map_lines'] = re.sub(r'(.*) = slha', r'm_card_parameters["\1"] = card', replace_dict['parameter_map_lines'])
-        
+
         # In the method: retrieve parameters from map, or from expression for other parameters
         replace_dict['set_independent_parameters'] = \
                                self.write_parameters_from_map(params_indep_card)
         replace_dict['set_independent_parameters'] += \
                                self.write_set_parameters(params_indep_nocard)
-        
+
         file_h = self.read_template_file(self.param_template_h) % replace_dict
         file_cc = self.read_template_file(self.param_template_cc) % replace_dict
-        
+
         return file_h, file_cc
 
-    
+
     def write_parameters_from_map(self, params):
         """Write out the lines of independent parameters"""
 
