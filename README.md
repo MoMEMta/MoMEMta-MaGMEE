@@ -43,7 +43,7 @@ cmake --build myHappyME/build --clean-first --parallel 4
 This generates a shared library that can be dynamically loaded by MoMEMta (using the `load_modules()` function in the Lua config file).
 
 The following options are available when configuring the the build (when running `cmake ..`):
-- `-DCMAKE_PREFIX_PATH=(path)`: Path to the installation of MoMEMta. **Must be specified** if your version of MoMEMta is installed locally and not in your system directories
+- `-DCMAKE_INSTALL_PREFIX=(path)`: Path to the installation of MoMEMta. **Must be specified** if your version of MoMEMta is installed locally and not in your system directories
 
 The matrix element has a name assigned to it, of type `myHappyME_P1_Sigma_pp_ttx_...`: 
 this is the name to use when defining the matrix element module in your Lua config file. 
