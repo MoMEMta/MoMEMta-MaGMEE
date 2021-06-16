@@ -14,7 +14,13 @@ MoMEMta - MadGraph Matrix Element Exporter
 
 ## Install
 
-Once your copy of MG5 is setup, go the the `PLUGIN` subfolder. There, download the MoMEMta-MaGMEE plugin (either by cloning the git repository, or by downloading and extracting the archive). 
+Once your copy of MG5 is setup, go the the `PLUGIN` subfolder. There, download the MoMEMta-MaGMEE plugin (either by cloning the git repository, or by downloading and extracting the archive).
+
+The MoMEMta-MaGMEE plugin needs to be on `PYTHONPATH` for it to properly get picked up. If it isn't already, you can prepend it to `PYTHONPATH` with
+
+```
+export PYTHONPATH=$(python -c 'import madgraph; from pathlib import Path; print(Path(madgraph.MG5DIR).joinpath("PLUGIN", "MoMEMta-MaGMEE"))'):"${PYTHONPATH}"
+```
 
 You are now ready to export matrix elements to use in MoMEMta!
 
