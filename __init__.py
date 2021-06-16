@@ -16,21 +16,21 @@
 
 ## import the required files
 
-import ProcessExporter
+from . import ProcessExporter
 
 ## Define a typical error for the plugin
 class MoMEMta_Error(Exception): pass
 
 ## We do not modify the MadGraph interface
 new_interface = False
- 
-## We add a new output class 
+
+## We add a new output class
 new_output = { 'MoMEMta': ProcessExporter.ProcessExporterMoMEMta }
 
 ## Plugin version
 __version__ = (1,0,0)
 
 ## MG5 version requirements
-minimal_mg5amcnlo_version = (2,5,0) 
+minimal_mg5amcnlo_version = (2,5,0)
 maximal_mg5amcnlo_version = (1000,1000,1000)
-latest_validated_version = (2,6,2)
+latest_validated_version = (3,1,1)
