@@ -37,11 +37,8 @@ You now have a folder called `myHappyME` containing the model's code, a paramete
 
 To build the code and use it in your project, you need to have MoMEMta installed on your system (see the MoMEMta documentation for more details). Then, do:
 ```
-cd myHappyME
-mkdir build
-cd build
-cmake ..
-make -j 4
+cmake -S myHappyME -B myHappyME/build
+cmake --build myHappyME/build --clean-first --parallel 4
 ```
 This generates a shared library that can be dynamically loaded by MoMEMta (using the `load_modules()` function in the Lua config file).
 
